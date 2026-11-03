@@ -17,6 +17,8 @@ Engines (all run on your machine, no API, no credits):
               "ref" = a few seconds of a voice to speak in (a voice you own or have the right to use). Slow on CPU, fast on a GPU.
               pip install chatterbox-tts
   piper       Piper (MIT): small and very fast, a bit robotic — good for machines and as a fallback. pip install piper-tts
+  file        an existing take, "src" (relative to the voice folder): the same audio another piece used, with this voice's fx
+              (a callback that must be the very same recording, not a new synthesis of the same words)
 "fx" is an ffmpeg audio filter chain applied after synthesis (tape, phone, radio, monster ...). Takes are skipped when the
 text, voice and settings are unchanged (a hash in <id>.wav.json); --force remakes them.
 "lufs" (on the script, or per voice / line) sets every take of that voice to the same loudness after its fx, so lines sit
@@ -146,7 +148,12 @@ def level(wav, target):
     return min(target - now, -1.0 - (peak if peak is not None else -99))
 
 
-ENGINES = {'kokoro': kokoro, 'chatterbox': chatterbox, 'piper': piper}
+def file_take(text, V, out):
+    src = V['src'] if os.path.isabs(V['src']) else os.path.join(vdir, V['src'])
+    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', src, '-ac', '1', '-c:a', 'pcm_f32le', out], check=True)
+
+
+ENGINES = {'kokoro': kokoro, 'chatterbox': chatterbox, 'piper': piper, 'file': file_take}
 made = 0
 for L in S['lines']:
     if only and L['id'] not in only.split(','):
@@ -155,7 +162,7 @@ for L in S['lines']:
     for k in ('lufs', 'takes'):
         if k in S and k not in V:
             V[k] = S[k]
-    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes'):
+    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes', 'src'):
         if k in L:
             V[k] = L[k]
     out = os.path.join(vdir, f"{L['id']}.wav")

@@ -122,8 +122,9 @@ const FRAMES_DIR = process.env.ANIMATE_FRAMES ? path.join(process.env.ANIMATE_FR
 const FRAME_EXT = fs.existsSync(path.join(FRAMES_DIR, 'f0000.jpg')) ? 'jpg' : 'png';
 for (const shot of T.shots) {
   const f0 = Math.round(shot.t0 * T.fps), f1 = Math.round(shot.t1 * T.fps) - 1;
-  const picks = [];
-  for (let k = 0; shot.t0 + k * 0.25 < shot.t1 - 1e-6; k++) picks.push(Math.min(f1, Math.max(f0, Math.round((shot.t0 + k * 0.25) * T.fps))));
+  // every 0.25s, but at most 48 frames a sheet: a long shot gets a coarser step (ffmpeg rejects a select expression past ~130 terms)
+  const picks = [], step = Math.max(0.25, (shot.t1 - shot.t0) / 48);
+  for (let k = 0; shot.t0 + k * step < shot.t1 - 1e-6; k++) picks.push(Math.min(f1, Math.max(f0, Math.round((shot.t0 + k * step) * T.fps))));
   const uniq = [...new Set(picks)], rows = Math.ceil(uniq.length / cols);
   const tag = `shot${String(shot.id).padStart(2, '0')}`;
   const sheet = path.join(REVIEW, `${tag}-sheet.jpg`);
