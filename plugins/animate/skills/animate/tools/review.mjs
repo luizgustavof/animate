@@ -11,6 +11,7 @@
 //   6. anchor (if TIMELINE.anchor and window.anchorAt(t)): how often the protagonist sits on its screen spot
 //   7. text (tools/textcheck.mjs): strings cut off by the frame, overlapping other text, or under the phone UI
 //   8. sound (if renders/audio.wav): the loudest 100ms window, the silence before it, integrated loudness (LUFS), true peak
+//   8b. sound check (tools/soundcheck.mjs): startles, piercing clicks, harsh stretches, masked lines, fatigue, busy, hiss
 //   9. dead beats: stretches longer than review.deadMax (default 3s) where the picture barely changes; review/phone.jpg
 //      (one frame a second at 360px wide: read it at phone size)
 // A supplied track's grid: TIMELINE.gridOffset (the first beat) shifts the 8th/16th grid; cuts pass within half a frame.
@@ -24,12 +25,14 @@
 //
 // usage: node tools/review.mjs pieces/<name> [--format 1:1]
 import { createRequire } from 'node:module';
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { GPU_ARGS, gpuReport } from './gpu.mjs';
-import { textCheck, printTextCheck } from './textcheck.mjs';
+import { textCheckPages, printTextCheck } from './textcheck.mjs';
+import { soundCheck, printSoundCheck, soundSvg } from './soundcheck.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = (() => { try { return require('playwright'); } catch { return require(path.join(execSync('npm root -g').toString().trim(), 'playwright')); } })();
@@ -90,7 +93,13 @@ const info = await page.evaluate(() => {
     cutFrames: T.cuts.map((c) => { let f = 0; while (f < T.frames && !past(f / T.fps, c)) f++; return f; }),
   };
 });
-const TXT = await textCheck(page, { safe: info.T.height > info.T.width ? info.T.safe || PIECE.review?.safe || { top: 240, bottom: 420, right: 140 } : null });
+// the text check draws every 6th frame: dealt out over one page per core (it was most of the review's time on one page)
+const CORES = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+const tPages = [page], tCtx = await browser.newContext();
+for (let i = 1; i < Math.max(1, Math.min(12, CORES)); i++) {
+  const p = await tCtx.newPage(); await p.goto(PAGE_URL); await p.waitForFunction(() => window.TIMELINE && window.renderFrame); tPages.push(p);
+}
+const TXT = await textCheckPages(tPages, { safe: info.T.height > info.T.width ? info.T.safe || PIECE.review?.safe || { top: 240, bottom: 420, right: 140 } : null });
 await browser.close();
 const { T } = info;
 // another format than the main one: its own render and review folder
@@ -120,7 +129,9 @@ const safeBoxes = VERTICAL
 // the frames export.mjs wrote: JPEG (default) or PNG (--png)
 const FRAMES_DIR = process.env.ANIMATE_FRAMES ? path.join(process.env.ANIMATE_FRAMES, path.basename(ROOT)) : path.join(ROOT, 'frames');
 const FRAME_EXT = fs.existsSync(path.join(FRAMES_DIR, 'f0000.jpg')) ? 'jpg' : 'png';
-for (const shot of T.shots) {
+// the sheets are independent ffmpeg runs: a few at a time (each decodes its own shot's frames)
+const runAsync = (args) => new Promise((res) => spawn('ffmpeg', args, { stdio: 'inherit' }).on('close', (status) => res({ status })));
+const sheetJobs = T.shots.map((shot) => async () => {
   const f0 = Math.round(shot.t0 * T.fps), f1 = Math.round(shot.t1 * T.fps) - 1;
   // every 0.25s, but at most 48 frames a sheet: a long shot gets a coarser step (ffmpeg rejects a select expression past ~130 terms)
   const picks = [], step = Math.max(0.25, (shot.t1 - shot.t0) / 48);
@@ -130,9 +141,9 @@ for (const shot of T.shots) {
   const sheet = path.join(REVIEW, `${tag}-sheet.jpg`);
   // decode only this shot's frames (start at its first frame), not the whole piece from frame 0 for every shot
   const sel = uniq.map((f) => `eq(n\\,${f - f0})`).join('+');
-  let r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-framerate', String(T.fps), '-start_number', String(f0), '-t', ((f1 - f0 + 1) / T.fps).toFixed(4), '-i', path.join(FRAMES_DIR, `f%04d.${FRAME_EXT}`),
+  let r = await runAsync(['-v', 'error', '-y', '-framerate', String(T.fps), '-start_number', String(f0), '-t', ((f1 - f0 + 1) / T.fps).toFixed(4), '-i', path.join(FRAMES_DIR, `f%04d.${FRAME_EXT}`),
     '-vf', `${safeBoxes}drawtext=${font}:text='%{pts\\:hms\\:${(f0 / T.fps).toFixed(4)}}  f%{eif\\:n+${f0}\\:d}':x=14:y=14:fontsize=${labelSize}:fontcolor=yellow:box=1:boxcolor=black@0.65:boxborderw=6,select='${sel}',scale=${cellW}:${cellH},tile=${cols}x${rows}`,
-    '-frames:v', '1', '-q:v', '3', sheet], { stdio: 'inherit' });
+    '-frames:v', '1', '-q:v', '3', sheet]);
   if (r.status !== 0) throw new Error('sheet failed for shot ' + shot.id);
   const refs = (REF_FOR[shot.id] || []).map(refPath).filter((p) => fs.existsSync(p));
   const sheetW = cellW * cols, sheetH = cellH * rows;
@@ -152,7 +163,12 @@ for (const shot of T.shots) {
       '-frames:v', '1', '-q:v', '3', out], { stdio: 'inherit' });
     if (r.status !== 0) throw new Error('side-by-side failed for shot ' + shot.id);
   }
-  console.log(`shot ${shot.id} (${shot.title}): ${uniq.length} frames [${uniq.join(',')}] -> review/${tag}-sheet.jpg${refs.length ? ` + references/_review/${path.basename(ROOT)}/${tag}-vs-ref.jpg` : ''}`);
+  return `shot ${shot.id} (${shot.title}): ${uniq.length} frames [${uniq.join(',')}] -> review/${tag}-sheet.jpg${refs.length ? ` + references/_review/${path.basename(ROOT)}/${tag}-vs-ref.jpg` : ''}`;
+});
+{
+  const lines = new Array(sheetJobs.length); let next = 0;
+  await Promise.all(Array.from({ length: Math.min(sheetJobs.length, Math.max(2, Math.floor(CORES / 2))) }, async () => { while (next < sheetJobs.length) { const i = next++; lines[i] = await sheetJobs[i](); } }));
+  for (const l of lines) console.log(l);
 }
 
 // ---- cut timing
@@ -364,6 +380,12 @@ if (fs.existsSync(WAV)) {
   console.log(`  loudest 100ms window: ${(L / 10).toFixed(1)}s (${db[L].toFixed(1)} dBFS)${gift ? ` - ${L / 10 >= gift.t0 && L / 10 < gift.t1 ? 'in' : 'NOT in'} the payoff act ${gift.t0}-${gift.t1}s` : ''}`);
   console.log(`  silence before it: ${(best / 10).toFixed(1)}s at <= -40 dBFS${best ? ` ending ${((bestEnd + 1) / 10).toFixed(1)}s` : ''} in the 2s before (craft.md wants 0.5-4s when the story has a turn)`);
   console.log(`  loudness: ${I != null ? I.toFixed(1) + ' LUFS integrated' : 'n/a'}, range ${LRA != null ? LRA.toFixed(1) + ' LU' : 'n/a'}, true peak ${TP != null ? TP.toFixed(1) + ' dBFS' : 'n/a'} (phone target about -16 to -14 LUFS, peak <= -1)`);
+}
+// ---- sound check (tools/soundcheck.mjs): what tires or irritates a listener, where, from which bus, and the cut that clears it
+{
+  const sc = soundCheck(ROOT, T);
+  printSoundCheck(sc);
+  if (sc) { soundSvg(sc, path.join(REVIEW, 'sound.svg')); console.log(`SOUND SHEET: ${path.relative(ROOT, path.join(REVIEW, 'sound.svg'))} (loudness over time, voice lines, payoff and every finding; open it in a browser)`); }
 }
 // ---- dead beats: something new should happen every 2-4s; flag stretches where the picture barely changes
 {

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 export async function textCheck(page, o = {}) {
-  return page.evaluate(async ({ every, safe }) => {
+  return page.evaluate(async ({ every, safe, part, of }) => {
     const T = window.TIMELINE, W = T.width, H = T.height, P = CanvasRenderingContext2D.prototype;
     const rec = [];
     const wrap = (name) => {
@@ -57,7 +57,7 @@ export async function textCheck(page, o = {}) {
     // every Nth frame, plus the first and last frame of every shot (a 3-frame shot is never skipped)
     const fs = new Set(); for (let f = 0; f < T.frames; f += every) fs.add(f);
     for (const sh of T.shots || []) { const a = Math.round(sh.t0 * T.fps), b = Math.round(sh.t1 * T.fps) - 1; if (a < T.frames) fs.add(a); if (b >= a && b < T.frames) fs.add(b); }
-    for (const f of [...fs].sort((x, y) => x - y)) {
+    for (const f of [...fs].sort((x, y) => x - y).filter((_, i) => i % of === part)) {   // one page takes every of-th frame
       const t = f / T.fps; if (inBridge(t)) continue;
       rec.length = 0; window.renderFrame(t, cv); frames++;
       const seen = new Map();
@@ -80,7 +80,18 @@ export async function textCheck(page, o = {}) {
     }
     undo.forEach((u) => u());
     return { frames, issues: [...issues.values()] };
-  }, { every: o.every || 6, safe: o.safe ?? null });
+  }, { every: o.every || 6, safe: o.safe ?? null, part: o.part ?? 0, of: o.of ?? 1 });
+}
+// the same check split across pages (each a page of the piece, loaded): the frames are dealt out in turn, and an issue seen
+// on several pages is joined back into one (first and last time, frame count) — about pages times faster
+export async function textCheckPages(pages, o = {}) {
+  const parts = await Promise.all(pages.map((p, part) => textCheck(p, { ...o, part, of: pages.length })));
+  const issues = new Map();
+  for (const i of parts.flatMap((r) => r.issues)) {
+    const k = i.kind + '|' + i.text, v = issues.get(k);
+    if (v) { v.t0 = Math.min(v.t0, i.t0); v.t1 = Math.max(v.t1, i.t1); v.n += i.n; } else issues.set(k, { ...i });
+  }
+  return { frames: parts.reduce((n, r) => n + r.frames, 0), issues: [...issues.values()].sort((a, b) => a.t0 - b.t0) };
 }
 
 export function printTextCheck(r, ignore = []) {

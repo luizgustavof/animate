@@ -27,8 +27,9 @@
 //           the master is encoded on the graphics card when ffmpeg has a working hardware encoder (NVENC, AMF, Quick Sync,
 //           VideoToolbox), else libx264 — --cpu-encode forces libx264, --best uses libx264 -preset slow -crf 14
 //
-// --share-best encodes the share copy with libx264 -preset slower from the master, after the frames: the same size as the graphics
-//           card's share with less grain lost (SSIM 0.956 vs 0.939 on a VHS piece), about two minutes for a 120s piece. For the final version.
+// --share-best encodes the share copy with libx264 -preset slower from the master, after the frames (about two minutes for a 120s
+//           piece). On AMD the graphics card's share is tuned (pre-analysis, VBAQ, B-frames) and comes within 0.001 SSIM of it at the
+//           same size (0.956 vs 0.957 on a VHS piece, against the frames; untuned 0.940) in 15s, so --share-best only pays elsewhere.
 //
 // usage: node tools/export.mjs pieces/<name> [--share-best] [--from N] [--to N] [--shots 3,7] [--workers N] [--no-audio] [--force-audio] [--no-mux] [--no-captions] [--only-audio] [--share] [--gpu | --no-gpu] [--png] [--cpu-encode | --best] [--format F | --formats A,B] [--blur N]
 import { createRequire } from 'node:module';
@@ -79,15 +80,19 @@ function pickEncoder() {
   const list = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout || '';
   const cands = [
     ['h264_nvenc', ['-c:v', 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-cq', '17', '-b:v', '0']],
-    ['h264_amf', ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '16', '-qp_p', '18', '-qp_b', '20']],
+    ['h264_amf', ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '16', '-qp_p', '18', '-qp_b', '20'],
+      // the share copy: peak-constrained VBR with pre-analysis, variance-based adaptive quantisation and B-frames (4.6M lands at the
+      // size x264 slower makes at 5M)
+      ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'vbr_peak', '-b:v', '4.6M', '-maxrate', '6M', '-bufsize', '12M', '-preanalysis', '1', '-vbaq', '1', '-bf', '3']],
     ['h264_qsv', ['-c:v', 'h264_qsv', '-preset', 'slower', '-global_quality', '18']],
     ['h264_videotoolbox', ['-c:v', 'h264_videotoolbox', '-q:v', '70']],
   ];
-  for (const [name, args] of cands) {
+  const works = (args) => spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=256x256:d=0.2', ...args, '-pix_fmt', 'yuv420p', '-f', 'null', '-']).status === 0;
+  for (const [name, args, share] of cands) {
     if (!list.includes(name)) continue;
     // listed is not enough (a build can list NVENC with no NVIDIA card): encode a few frames to be sure
-    const t = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=256x256:d=0.2', ...args, '-pix_fmt', 'yuv420p', '-f', 'null', '-']);
-    if (t.status === 0) return { name, args };
+    // (and the tuned share settings separately: an older card may lack B-frames or pre-analysis)
+    if (works(args)) return { name, args, share: share && works(share) ? share : null };
   }
   return { name: 'libx264', args: x264 };
 }
@@ -95,7 +100,7 @@ const ENC = pickEncoder();
 // the share copy: capped at 6 Mb/s, since grainy looks (film, tape, noise) otherwise balloon past what a phone or a chat upload takes
 // (on the graphics card too when there is one: a bitrate target every hardware encoder understands)
 const SHARE_ARGS = ENC.name === 'libx264' ? ['-c:v', 'libx264', '-preset', 'faster', '-crf', '24', '-maxrate', '6M', '-bufsize', '12M']
-  : ['-c:v', ENC.name, '-b:v', '5M', '-maxrate', '6M', '-bufsize', '12M'];
+  : ENC.share || ['-c:v', ENC.name, '-b:v', '5M', '-maxrate', '6M', '-bufsize', '12M'];
 if (flag('share-best')) SHARE_ARGS.splice(0, SHARE_ARGS.length, '-c:v', 'libx264', '-preset', 'slower', '-b:v', '5M', '-maxrate', '6M', '-bufsize', '12M');
 const onlyAudio = flag('only-audio');
 const FORMAT = opt('format', null), BLUR = Math.max(1, parseInt(opt('blur', '1'), 10));

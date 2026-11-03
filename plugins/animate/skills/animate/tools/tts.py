@@ -29,11 +29,22 @@ Kokoro, measured with a no-reference speech-quality model (SQUIM: PESQ / STOI es
     with the same words understood and still heard as Portuguese (the phonemes come from the pt-br text, the timbre from the blend)
   - "takes": N (on the script, a voice or a line) synthesises N variants (the speed nudged around the one asked) and keeps the
     one SQUIM scores best (needs torch + torchaudio); a line's choice is printed with its score
-  - pitch a natural voice with asetrate={sr}*1.09,aresample={sr}:resampler=soxr,atempo=1/1.09, never rubberband (PESQ -0.8)"""
+  - pitch a natural voice with asetrate={sr}*1.09,aresample={sr}:resampler=soxr,atempo=1/1.09, never rubberband (PESQ -0.8)
+Sounding less like a machine (a voice or a line may set them; a script without them makes the same takes as before):
+  "pause": [0.45, 0.8]  Kokoro runs sentences together (80-120 ms between "Isso é o palco. Ontem à noite."); with "pause" the
+                        gap after every full stop inside the line is opened up to a pause picked in that range (seconds, fixed
+                        by the words: the same take every run); the line is still synthesised whole, so its prosody is Kokoro's.
+                        Never a rule for every line: a line that must run fast sets its own ("pause": [0.08, 0.15]) or
+                        "pause": null (the whole line in one synthesis, Kokoro's own short gaps)
+  "room": { "rt": 0.35, "wet": 0.12 }   the room the voice was spoken in, convolved before the fx (early reflections and a tail
+                        whose highs die first) — in place of aecho, whose one short tap combs the voice into a metallic ring
+  "wow": 0.15           tape speed drift on playback, after the fx: wow at 0.6 Hz with this peak pitch deviation (percent) and
+                        flutter at 6.5 Hz at a quarter of it — for a voice that is on a tape, not one recorded today"""
 import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -90,7 +101,46 @@ def kokoro(text, V, out):
     q, audio, sr, s_i = best
     if n > 1:
         V['_chosen'] = f'speed {s_i:.3f}, quality {q:.2f}'
+    if V.get('pause'):
+        audio, got = widen(audio, sr, text, *V['pause'])
+        if got:
+            V['_chosen'] = V.get('_chosen', '') + f"{', ' if n > 1 else ''}pauses {' '.join(f'{p:.2f}' for p in got)}s"
     sf.write(out, audio, sr, subtype='FLOAT')   # no 16-bit rounding before the fx chain
+
+
+def widen(audio, sr, text, lo, hi):
+    """the gap Kokoro leaves after each full stop inside a line, opened up to a pause in [lo, hi] seconds (picked from the
+    words, so a re-run makes the same take). The line is still synthesised whole: sentences synthesised one by one lose their
+    context — alone, "O Algodão." came out with an English accent (Whisper heard "Halgo Jones"). Each stop's gap is the quiet
+    run (>= 50 ms, 35 dB down) nearest to where the stop falls in the text, longer runs preferred; the silence goes in its middle."""
+    import numpy as np
+    stops = [m.end() for m in re.finditer(r'[.!?…]+(?=\s+\S)', text.strip())]
+    fr = int(sr * 0.01)
+    e = np.sqrt((audio[:len(audio) // fr * fr].reshape(-1, fr) ** 2).mean(1))
+    loud = np.nonzero(e > e.max() * 10 ** (-35 / 20))[0]
+    if not stops or not len(loud):
+        return audio, []
+    runs, r0 = [], None
+    for k in range(loud[0], loud[-1] + 2):
+        quiet = k <= loud[-1] and e[k] <= e.max() * 10 ** (-35 / 20)
+        if quiet and r0 is None: r0 = k
+        elif not quiet and r0 is not None:
+            if k - r0 >= 5: runs.append((r0, k - r0))
+            r0 = None
+    s0, s1, cuts = loud[0], loud[-1], []
+    for i, c in enumerate(stops):
+        want = s0 + (s1 - s0) * c / len(text.strip())
+        free = [r for r in runs if r not in [x[0] for x in cuts]]
+        if not free: break
+        run = max(free, key=lambda r: r[1] / (1 + abs(r[0] + r[1] / 2 - want) / 25))   # 25 frames = 0.25 s off costs half
+        u = int(hashlib.sha1(f'{text}|{i}'.encode()).hexdigest()[:8], 16) / 0xffffffff
+        cuts.append((run, lo + (hi - lo) * u))
+    parts, at, got = [], 0, []
+    for (r, n), pause in sorted(cuts):
+        mid = (r + n // 2) * fr
+        parts += [audio[at:mid], np.zeros(max(0, int((pause - n * 0.01) * sr)), dtype=audio.dtype)]
+        at = mid; got.append(max(pause, n * 0.01))
+    return np.concatenate(parts + [audio[at:]]), got
 
 
 def quality(audio, sr):
@@ -148,6 +198,47 @@ def level(wav, target):
     return min(target - now, -1.0 - (peak if peak is not None else -99))
 
 
+def room(wav, rt=0.35, wet=0.12, seed='room'):
+    """the voice in a small room: twelve soft early reflections (5-35 ms) and a diffuse tail from 12 ms on that decays 60 dB in `rt`
+    seconds at the bottom and faster from 3 kHz up (the highs die first, as in a furnished room); `wet` is the reverb's energy
+    against the dry voice. Replaces the file; the same seed makes the same room."""
+    import numpy as np, soundfile as sf
+    x, sr = sf.read(wav, dtype='float32')
+    R = np.random.default_rng(int(hashlib.sha1(seed.encode()).hexdigest()[:8], 16))
+    n = int(sr * rt * 1.3)
+    early = np.zeros(n)
+    for d, g in zip(np.sort(R.uniform(0.005, 0.035, 12)), np.linspace(0.35, 0.1, 12)):   # soft and from 5 ms on: strong early taps comb the voice
+        i = int(d * sr); early[i:i + 3] += g * np.array([0.5, 0.35, 0.15]) * R.choice([-1, 1])
+    hop, nfft = 128, 512
+    frames = n // hop + 1
+    rt_f = rt / (1 + (np.fft.rfftfreq(nfft, 1 / sr) / 3000.0) ** 1.2)
+    t = (np.arange(frames) * hop / sr)[:, None]
+    spec = np.exp(-6.91 * t / rt_f[None, :]) * (t >= 0.012) * np.exp(2j * np.pi * R.random((frames, nfft // 2 + 1)))
+    tail, win = np.zeros(frames * hop + nfft), np.hanning(nfft)
+    for k in range(frames):
+        tail[k * hop:k * hop + nfft] += np.fft.irfft(spec[k], nfft) * win
+    tail = tail[:n]
+    ir = early + tail * np.sqrt((early ** 2).sum() / ((tail ** 2).sum() + 1e-12)) * 1.2
+    ir /= np.sqrt((ir ** 2).sum()) + 1e-12
+    m = len(x) + n - 1
+    y = np.concatenate([x, np.zeros(n - 1)]) + np.fft.irfft(np.fft.rfft(x, m) * np.fft.rfft(ir, m), m) * math.sqrt(wet)
+    sf.write(wav, y.astype(np.float32), sr, subtype='FLOAT')
+
+
+def wow(wav, pct=0.15, seed='wow'):
+    """tape speed drift: the take read back at a rate that wanders by `pct` percent at 0.6 Hz (wow) and a quarter of that at
+    6.5 Hz (flutter), phases fixed by the seed. Replaces the file."""
+    import numpy as np, soundfile as sf
+    x, sr = sf.read(wav, dtype='float32')
+    R = np.random.default_rng(int(hashlib.sha1(seed.encode()).hexdigest()[:8], 16))
+    t = np.arange(len(x)) / sr
+    tau = t.copy()
+    for fq, p in ((0.6, pct / 100), (6.5, pct / 400)):
+        tau -= p / (2 * np.pi * fq) * np.cos(2 * np.pi * fq * t + R.uniform(0, 2 * np.pi))
+    y = np.interp(np.clip(tau, 0, t[-1]) * sr, np.arange(len(x)), x)
+    sf.write(wav, y.astype(np.float32), sr, subtype='FLOAT')
+
+
 def file_take(text, V, out):
     src = V['src'] if os.path.isabs(V['src']) else os.path.join(vdir, V['src'])
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', src, '-ac', '1', '-c:a', 'pcm_f32le', out], check=True)
@@ -162,7 +253,7 @@ for L in S['lines']:
     for k in ('lufs', 'takes'):
         if k in S and k not in V:
             V[k] = S[k]
-    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes', 'src'):
+    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes', 'src', 'pause', 'room', 'wow'):
         if k in L:
             V[k] = L[k]
     out = os.path.join(vdir, f"{L['id']}.wav")
@@ -176,10 +267,14 @@ for L in S['lines']:
         # "{sr}" in an fx chain is the take's own sample rate (asetrate={sr}*0.8 pitches down by 20%, whatever the engine)
         sr = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=sample_rate', '-of', 'csv=p=0', raw], capture_output=True, text=True).stdout.strip() or '24000'
         chain = V.get('fx', 'anull').replace('{sr}', sr) + ',aresample=48000:resampler=soxr:precision=28'
-        if 'lufs' in V:
+        if 'room' in V:   # the room is the voice's (one room per voice), before the mic chain
+            room(raw, float(V['room'].get('rt', 0.35)), float(V['room'].get('wet', 0.12)), L['voice'])
+        if 'lufs' in V or 'wow' in V:
             fx = os.path.join(td, 'fx.wav')
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', '-c:a', 'pcm_f32le', fx], check=True)
-            gain = level(fx, float(V['lufs']))
+            if 'wow' in V:
+                wow(fx, float(V['wow']), L['id'])
+            gain = level(fx, float(V['lufs'])) if 'lufs' in V else 0.0
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', fx, '-af', f'volume={gain:.2f}dB', '-ac', '1', out], check=True)
         else:
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', out], check=True)
