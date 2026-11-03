@@ -21,8 +21,13 @@ Engines (all run on your machine, no API, no credits):
 text, voice and settings are unchanged (a hash in <id>.wav.json); --force remakes them.
 "lufs" (on the script, or per voice / line) sets every take of that voice to the same loudness after its fx, so lines sit
 level with each other in the mix (a whisper voice gets a lower target, not a lower fx volume). The take is synthesised in
-float and resampled to 48 kHz with soxr. A natural voice that is pitched in its fx keeps its timbre with
-rubberband=pitch=1.09:pitchq=quality:formant=preserved (formant=shifted is for monsters and chipmunks)."""
+float and resampled to 48 kHz with soxr.
+Kokoro, measured with a no-reference speech-quality model (SQUIM: PESQ / STOI estimates) and Whisper (word error, language):
+  - blend the pt-br voice with an English one of the top grade: { "pm_santa": 0.7, "am_michael": 0.3 } lifts PESQ ~2.6 -> ~3.3
+    with the same words understood and still heard as Portuguese (the phonemes come from the pt-br text, the timbre from the blend)
+  - "takes": N (on the script, a voice or a line) synthesises N variants (the speed nudged around the one asked) and keeps the
+    one SQUIM scores best (needs torch + torchaudio); a line's choice is printed with its score
+  - pitch a natural voice with asetrate={sr}*1.09,aresample={sr}:resampler=soxr,atempo=1/1.09, never rubberband (PESQ -0.8)"""
 import hashlib
 import json
 import math
@@ -72,8 +77,30 @@ def kokoro(text, V, out):
     voice = V.get('voice', 'pm_alex')
     if isinstance(voice, dict):   # a blend makes a voice of its own: { "pm_alex": 0.5, "pm_santa": 0.5 }
         voice = sum(_engines['kokoro'].get_voice_style(n) * w for n, w in voice.items())
-    audio, sr = _engines['kokoro'].create(text, voice=voice, speed=float(V.get('speed', 1.0)), lang=V.get('lang', 'en-us'))
+    sp, n = float(V.get('speed', 1.0)), int(V.get('takes', 1))
+    best = None
+    for i in range(n):
+        s_i = sp * (1 + (i - (n - 1) / 2) * 0.03) if n > 1 else sp   # 0.97x, 1x, 1.03x ... around the speed asked
+        audio, sr = _engines['kokoro'].create(text, voice=voice, speed=s_i, lang=V.get('lang', 'en-us'))
+        q = quality(audio, sr) if n > 1 else 0
+        if best is None or q > best[0]:
+            best = (q, audio, sr, s_i)
+    q, audio, sr, s_i = best
+    if n > 1:
+        V['_chosen'] = f'speed {s_i:.3f}, quality {q:.2f}'
     sf.write(out, audio, sr, subtype='FLOAT')   # no 16-bit rounding before the fx chain
+
+
+def quality(audio, sr):
+    """SQUIM's no-reference estimate of how clean a take is: PESQ (1..4.5) plus STOI (0..1), on the raw synthesis"""
+    if 'squim' not in _engines:
+        import torchaudio
+        _engines['squim'] = torchaudio.pipelines.SQUIM_OBJECTIVE.get_model()
+    import torch, torchaudio
+    x = torchaudio.functional.resample(torch.from_numpy(audio).float()[None], sr, 16000)
+    with torch.no_grad():
+        stoi, pesq, _ = _engines['squim'](x)
+    return pesq.item() + stoi.item()
 
 
 def chatterbox(text, V, out):
@@ -125,9 +152,10 @@ for L in S['lines']:
     if only and L['id'] not in only.split(','):
         continue
     V = dict(S['voices'][L['voice']])
-    if 'lufs' in S and 'lufs' not in V:
-        V['lufs'] = S['lufs']
-    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs'):
+    for k in ('lufs', 'takes'):
+        if k in S and k not in V:
+            V[k] = S[k]
+    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes'):
         if k in L:
             V[k] = L[k]
     out = os.path.join(vdir, f"{L['id']}.wav")
@@ -150,7 +178,7 @@ for L in S['lines']:
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', out], check=True)
     json.dump({'sig': sig, 'engine': V.get('engine', 'kokoro')}, open(meta, 'w'))
     L['file'] = f"{L['id']}.wav"; made += 1
-    print(f"{L['id']:6} {L['voice']:10} {V.get('engine', 'kokoro'):10} {L['text']}")
+    print(f"{L['id']:6} {L['voice']:10} {V.get('engine', 'kokoro'):10} {L['text']}" + (f"   [{V['_chosen']}]" if '_chosen' in V else ''))
 
 json.dump(S, open(os.path.join(vdir, 'script.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 print(f'{made} take(s) made; next: node tools/voice.mjs {piece}')
