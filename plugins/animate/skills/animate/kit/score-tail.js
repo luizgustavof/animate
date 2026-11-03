@@ -7,6 +7,10 @@
   const N = Math.round(LOOP_T * sampleRate), L = new Float32Array(N), Rr = new Float32Array(N);
   const c0 = buf.getChannelData(0), c1 = buf.getChannelData(1);
   for (let i = 0; i < N; i++) { L[i] = c0[i] + (i + N < len ? c0[i + N] : 0); Rr[i] = c1[i] + (i + N < len ? c1[i + N] : 0); }
+  return normIn === 'raw' ? { left: L, right: Rr, sampleRate } : levelScore({ left: L, right: Rr, sampleRate }, normIn);
+}
+function levelScore({ left: L, right: Rr, sampleRate }, normIn) {
+  const N = L.length;
   // loudness for a phone (subagents-short): RMS-normalise to -17 dBFS, then a look-ahead limiter at -1 dBFS.
   // Stems reuse the mix's gain and gain curve, so they sum back to the mix.
   let k = normIn?.k, g = normIn?.g;
@@ -34,12 +38,12 @@ async function renderAudioStems() {
   const music = await buildScore(48000, 'music', mix.norm), sfx = await buildScore(48000, 'sfx', mix.norm);
   return { music: wavB64(music), sfx: wavB64(sfx) };
 }
-// everything export needs in one pass: the mix once (its loudness curve is shared by the stems), then the music and
-// sfx stems rendered side by side (each OfflineAudioContext renders on its own audio thread)
+// everything export needs in one pass: the mix and its music and sfx stems rendered side by side (each OfflineAudioContext
+// renders on its own audio thread), then all three levelled with the mix's loudness curve, so the stems still sum to the mix
 async function renderAudioAll() {
-  const mix = await buildScore(48000, 'mix');
-  const [music, sfx] = await Promise.all([buildScore(48000, 'music', mix.norm), buildScore(48000, 'sfx', mix.norm)]);
-  return { mix: wavB64(mix), music: wavB64(music), sfx: wavB64(sfx) };
+  const [rm, ru, rs] = await Promise.all(['mix', 'music', 'sfx'].map((p) => buildScore(48000, p, 'raw')));
+  const mix = levelScore(rm);
+  return { mix: wavB64(mix), music: wavB64(levelScore(ru, mix.norm)), sfx: wavB64(levelScore(rs, mix.norm)) };
 }
 window.renderAudioAll = renderAudioAll;
 window.renderAudioWav = renderAudioWav;

@@ -18,9 +18,14 @@ Engines (all run on your machine, no API, no credits):
               pip install chatterbox-tts
   piper       Piper (MIT): small and very fast, a bit robotic — good for machines and as a fallback. pip install piper-tts
 "fx" is an ffmpeg audio filter chain applied after synthesis (tape, phone, radio, monster ...). Takes are skipped when the
-text, voice and settings are unchanged (a hash in <id>.wav.json); --force remakes them."""
+text, voice and settings are unchanged (a hash in <id>.wav.json); --force remakes them.
+"lufs" (on the script, or per voice / line) sets every take of that voice to the same loudness after its fx, so lines sit
+level with each other in the mix (a whisper voice gets a lower target, not a lower fx volume). The take is synthesised in
+float and resampled to 48 kHz with soxr. A natural voice that is pitched in its fx keeps its timbre with
+rubberband=pitch=1.09:pitchq=quality:formant=preserved (formant=shifted is for monsters and chipmunks)."""
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -68,7 +73,7 @@ def kokoro(text, V, out):
     if isinstance(voice, dict):   # a blend makes a voice of its own: { "pm_alex": 0.5, "pm_santa": 0.5 }
         voice = sum(_engines['kokoro'].get_voice_style(n) * w for n, w in voice.items())
     audio, sr = _engines['kokoro'].create(text, voice=voice, speed=float(V.get('speed', 1.0)), lang=V.get('lang', 'en-us'))
-    sf.write(out, audio, sr)
+    sf.write(out, audio, sr, subtype='FLOAT')   # no 16-bit rounding before the fx chain
 
 
 def chatterbox(text, V, out):
@@ -98,13 +103,31 @@ def piper(text, V, out):
                    input=text.encode('utf-8'), check=True, capture_output=True, env={**os.environ, 'PYTHONUTF8': '1'})   # Windows reads stdin as cp1252 otherwise, and accents come out as symbol names
 
 
+def level(wav, target):
+    """the gain (dB) that brings a take to `target` LUFS, held so its peak stays under -1 dBFS; takes under 0.4s have no
+    integrated loudness, so they are matched by RMS (about the same number for speech)"""
+    r = subprocess.run(['ffmpeg', '-hide_banner', '-i', wav, '-af', 'ebur128=peak=sample:framelog=quiet,astats=metadata=0:measure_overall=RMS_level:measure_perchannel=0', '-f', 'null', '-'],
+                       capture_output=True, text=True).stderr
+    I = peak = rms = None
+    num = lambda x: (lambda v: v if math.isfinite(v) else None)(float(x))
+    for line in r.splitlines():
+        t = line.strip()
+        if t.startswith('I:'): I = num(t.split()[1])
+        elif t.startswith('Peak:'): peak = num(t.split()[1])
+        elif 'RMS level dB' in t: rms = num(t.split(':')[-1])
+    now = I if I is not None and I > -69 else (rms if rms is not None else target)
+    return min(target - now, -1.0 - (peak if peak is not None else -99))
+
+
 ENGINES = {'kokoro': kokoro, 'chatterbox': chatterbox, 'piper': piper}
 made = 0
 for L in S['lines']:
     if only and L['id'] not in only.split(','):
         continue
     V = dict(S['voices'][L['voice']])
-    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length'):
+    if 'lufs' in S and 'lufs' not in V:
+        V['lufs'] = S['lufs']
+    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs'):
         if k in L:
             V[k] = L[k]
     out = os.path.join(vdir, f"{L['id']}.wav")
@@ -117,7 +140,14 @@ for L in S['lines']:
         ENGINES[V.get('engine', 'kokoro')](L['text'], V, raw)
         # "{sr}" in an fx chain is the take's own sample rate (asetrate={sr}*0.8 pitches down by 20%, whatever the engine)
         sr = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=sample_rate', '-of', 'csv=p=0', raw], capture_output=True, text=True).stdout.strip() or '24000'
-        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', V.get('fx', 'anull').replace('{sr}', sr), '-ar', '48000', '-ac', '1', out], check=True)
+        chain = V.get('fx', 'anull').replace('{sr}', sr) + ',aresample=48000:resampler=soxr:precision=28'
+        if 'lufs' in V:
+            fx = os.path.join(td, 'fx.wav')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', '-c:a', 'pcm_f32le', fx], check=True)
+            gain = level(fx, float(V['lufs']))
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', fx, '-af', f'volume={gain:.2f}dB', '-ac', '1', out], check=True)
+        else:
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', out], check=True)
     json.dump({'sig': sig, 'engine': V.get('engine', 'kokoro')}, open(meta, 'w'))
     L['file'] = f"{L['id']}.wav"; made += 1
     print(f"{L['id']:6} {L['voice']:10} {V.get('engine', 'kokoro'):10} {L['text']}")

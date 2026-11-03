@@ -157,7 +157,9 @@ for (const n of fs.readdirSync(FR)) { const m = /^f(\d+)\.(png|jpg)$/.exec(n); i
 console.log(`workers: ${workers} (${CORES} cores) · frames: ${EXT.toUpperCase()} · encoder: ${ENC.name}`);
 if (BLUR > 1 && !(await first.evaluate(() => typeof STYLE === 'object' && STYLE.ones))) console.warn(`warning: --blur ${BLUR} does nothing for a style on 2s (STYLE.ones is false): every sub-frame is the same drawing`);
 
-// ---- the sound first (it is fast), so the video can be encoded with it while the frames are drawn
+// ---- the sound runs on its own page beside the frame workers (it used to go first: ~45s of a 135s export); the video is
+// encoded without it and the audio is muxed in at the end (a stream copy, ~1s)
+const run = (args) => new Promise((res) => spawn('ffmpeg', args, { stdio: 'inherit' }).on('close', (status) => res({ status })));
 const wavPath = path.join(RENDERS, 'audio.wav'), sigPath = path.join(RENDERS, '.audio-sig');
 // the sound depends on the score's code, its cues, the voice and the mix settings; if none of them changed, the last audio.wav stands
 const audioSig = async () => {
@@ -169,7 +171,7 @@ const audioSig = async () => {
 const sigNow = flag('no-audio') ? null : await audioSig();
 const audioFresh = !flag('force-audio') && fs.existsSync(wavPath) && fs.existsSync(sigPath) && fs.readFileSync(sigPath, 'utf8') === sigNow;
 if (audioFresh) console.log('audio: score, cues and voice unchanged, keeping renders/audio.wav');
-if (!flag('no-audio') && !audioFresh) {
+async function makeAudio(first) {
   // the score in one pass: the mix once, then its music and sfx stems side by side (kit/score-tail.js renderAudioAll);
   // older pieces without it fall back to the mix, then the stems
   const t0 = Date.now();
@@ -192,9 +194,9 @@ if (!flag('no-audio') && !audioFresh) {
     const chain = `[0:a]aresample=48000,aformat=channel_layouts=stereo,volume=${M.gain ?? 0}dB,afade=t=out:st=${Math.max(0, dur - fade)}:d=${fade}`;
     const inputs = ['-ss', String(M.start ?? 0), '-t', String(dur), '-i', track, ...(fs.existsSync(sfx) ? ['-i', sfx] : [])];
     const graph = fs.existsSync(sfx) ? `${chain}[m];[1:a]aresample=48000,aformat=channel_layouts=stereo[s];[m][s]amix=inputs=2:normalize=0:duration=first,loudnorm=I=-14:TP=-1.5:LRA=11[o]` : `${chain},loudnorm=I=-14:TP=-1.5:LRA=11[o]`;
-    let r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', graph, '-map', '[o]', '-ar', '48000', '-t', String(dur), wavPath], { stdio: 'inherit' });
+    let r = await run(['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', graph, '-map', '[o]', '-ar', '48000', '-t', String(dur), wavPath]);
     if (r.status !== 0) { console.error('music mix failed'); process.exit(1); }
-    r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(M.start ?? 0), '-t', String(dur), '-i', track, '-filter_complex', `${chain}[o]`, '-map', '[o]', path.join(RENDERS, 'stem-music.wav')], { stdio: 'inherit' });
+    r = await run(['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(M.start ?? 0), '-t', String(dur), '-i', track, '-filter_complex', `${chain}[o]`, '-map', '[o]', path.join(RENDERS, 'stem-music.wav')]);
     console.log(`music: ${path.basename(track)} from ${M.start ?? 0}s, ${dur.toFixed(2)}s${fs.existsSync(sfx) ? ' + the score\'s sfx stem' : ''}, loudness -14 LUFS -> audio.wav`);
   }
   // the voice-over on top of whatever the score (or the track) became
@@ -215,12 +217,24 @@ if (!flag('no-audio') && !audioFresh) {
       `[0:a]aresample=48000,aformat=channel_layouts=stereo,${scoreVol}[s];` +
       `[s][k]sidechaincompress=threshold=0.02:ratio=4:attack=30:release=400[d];` +
       `[d][v]amix=inputs=2:normalize=0:duration=first,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=192000,alimiter=limit=0.79:attack=1:level=false,aresample=48000[o]`;   // loudnorm's ceiling is only a target: the limiter, run at 4x, holds the true peak too
-    let r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', mixIn, '-i', vo, '-filter_complex', graph, '-map', '[o]', '-ar', '48000', '-t', String(dur), wavPath], { stdio: 'inherit' });
+    let r = await run(['-y', '-hide_banner', '-loglevel', 'error', '-i', mixIn, '-i', vo, '-filter_complex', graph, '-map', '[o]', '-ar', '48000', '-t', String(dur), wavPath]);
     if (r.status !== 0) { console.error('voice mix failed'); process.exit(1); }
-    r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', vo, '-af', 'apad', '-ar', '48000', '-ac', '2', '-t', String(dur), path.join(RENDERS, 'stem-voice.wav')], { stdio: 'inherit' });
+    r = await run(['-y', '-hide_banner', '-loglevel', 'error', '-i', vo, '-af', 'apad', '-ar', '48000', '-ac', '2', '-t', String(dur), path.join(RENDERS, 'stem-voice.wav')]);
     console.log(`voice: ${path.basename(vo)} over the score at ${V.music ?? -14} dB (ducked under the voice), loudness -14 LUFS -> audio.wav (the score alone: audio-score.wav)`);
   }
   fs.writeFileSync(sigPath, sigNow);
+}
+const audioJob = !flag('no-audio') && !audioFresh ? openPage().then(async (p) => { await makeAudio(p); await p.close(); }) : Promise.resolve();
+if (onlyAudio) await audioJob;
+// the finished video gets the sound: a stream copy of the picture plus AAC
+const vtmp = (name) => path.join(RENDERS, name.replace(/\.mp4$/, '.video.mp4'));
+async function addAudio(name) {
+  const video = vtmp(name), out = path.join(RENDERS, name);
+  await audioJob;
+  if (flag('no-audio') || !fs.existsSync(wavPath)) { fs.renameSync(video, out); return; }
+  const r = await run(['-y', '-hide_banner', '-loglevel', 'error', '-i', video, '-i', wavPath, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out]);
+  if (r.status !== 0) { console.error('mux failed:', name); process.exit(1); }
+  fs.unlinkSync(video);
 }
 
 // --shots: only these shots' frames are drawn; the rest are the ones on disk, and the video is encoded from disk
@@ -235,12 +249,10 @@ const muxing = full && !onlyAudio && !flag('no-mux');
 const stream = muxing && !SHOTS && (flag('stream') || ENC.name !== 'libx264' || CORES >= 6);
 let encoder = null, streamedShare = false;
 if (stream) {
-  const audioIn = fs.existsSync(wavPath) && !flag('no-audio');
   const share = flag('share') && !flag('share-best');
   const encArgs = ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(meta.fps), '-c:v', EXT === 'png' ? 'png' : 'mjpeg', '-i', '-',
-    ...(audioIn ? ['-i', wavPath] : []),
-    '-map', '0:v:0', ...(audioIn ? ['-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k'] : []), ...ENC.args, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), '-movflags', '+faststart', path.join(RENDERS, opt('out', `final${SUFFIX}.mp4`)),
-    ...(share ? ['-map', '0:v:0', ...(audioIn ? ['-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k'] : []), ...SHARE_ARGS, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), '-movflags', '+faststart', path.join(RENDERS, `share${SUFFIX}.mp4`)] : [])];
+    '-map', '0:v:0', ...ENC.args, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), vtmp(opt('out', `final${SUFFIX}.mp4`)),
+    ...(share ? ['-map', '0:v:0', ...SHARE_ARGS, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), vtmp(`share${SUFFIX}.mp4`)] : [])];
   encoder = spawn('ffmpeg', encArgs, { stdio: ['pipe', 'inherit', 'inherit'] });
   encoder.done = new Promise((res) => encoder.on('close', res));
   streamedShare = share;
@@ -287,20 +299,22 @@ if (!onlyAudio) {
     await chain; encoder.stdin.end();
     const code = await encoder.done;
     if (code !== 0) { console.error('ffmpeg (streamed encode) failed'); process.exit(1); }
+    await addAudio(opt('out', `final${SUFFIX}.mp4`)); if (streamedShare) await addAudio(`share${SUFFIX}.mp4`);
     console.log(`wrote ${path.join(RENDERS, `final${SUFFIX}.mp4`)}${streamedShare ? ' + share' + SUFFIX + '.mp4' : ''} (${ENC.name}, encoded while drawing; ${((Date.now() - te) / 1000).toFixed(1)}s after the last frame)`);
   }
 }
 
+await audioJob;
 await browser.close();
 
 // not streamed: encode the frames on disk now — the master and (with --share) the share copy in one pass
 if (muxing && !stream) {
-  const audioIn = fs.existsSync(wavPath) && !flag('no-audio'), share = flag('share') && !flag('share-best'), te = Date.now();
-  const r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-framerate', String(meta.fps), '-i', path.join(FR, `f%04d.${EXT}`), ...(audioIn ? ['-i', wavPath] : []),
-    '-map', '0:v:0', ...(audioIn ? ['-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k'] : []), ...ENC.args, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), '-movflags', '+faststart', path.join(RENDERS, opt('out', `final${SUFFIX}.mp4`)),
-    ...(share ? ['-map', '0:v:0', ...(audioIn ? ['-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k'] : []), ...SHARE_ARGS, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), '-movflags', '+faststart', path.join(RENDERS, `share${SUFFIX}.mp4`)] : [])],
-  { stdio: 'inherit' });
+  const share = flag('share') && !flag('share-best'), te = Date.now();
+  const r = await run(['-y', '-hide_banner', '-loglevel', 'error', '-framerate', String(meta.fps), '-i', path.join(FR, `f%04d.${EXT}`),
+    '-map', '0:v:0', ...ENC.args, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), vtmp(opt('out', `final${SUFFIX}.mp4`)),
+    ...(share ? ['-map', '0:v:0', ...SHARE_ARGS, '-pix_fmt', 'yuv420p', '-r', String(meta.fps), '-frames:v', String(meta.frames), vtmp(`share${SUFFIX}.mp4`)] : [])]);
   if (r.status !== 0) { console.error('ffmpeg failed'); process.exit(1); }
+  await addAudio(opt('out', `final${SUFFIX}.mp4`)); if (share) await addAudio(`share${SUFFIX}.mp4`);
   streamedShare = share;
   console.log(`wrote ${path.join(RENDERS, `final${SUFFIX}.mp4`)}${share ? ' + share' + SUFFIX + '.mp4' : ''} (${ENC.name}, ${((Date.now() - te) / 1000).toFixed(1)}s)`);
 }
