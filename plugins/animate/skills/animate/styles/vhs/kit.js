@@ -329,7 +329,10 @@ function vhOSDBox(layout) {
 function vhTape() {
   const cv = ctx.canvas, g = typeof pieceGlitch === 'function' ? clamp(pieceGlitch(TT)) : 0;
   const sig = typeof pieceSignal === 'function' ? pieceSignal(TT) : null, R = RNG('tape', F);
-  const hw = Math.round(W / 2), hh = Math.round(H / 2), k = hw / W;   // the working size and its scale
+  // a thumbnail (window.THUMB, tools/thumb.mjs) is a still seen small and zoomed: the same tape colour and texture, but the
+  // luma at full resolution, steady (no tracking band or jitter) and lighter snow, so the subject stays sharp
+  const TH = !!window.THUMB;
+  const hw = TH ? W : Math.round(W / 2), hh = TH ? H : Math.round(H / 2), k = hw / W;   // the working size and its scale
   const out = vhBuf('out', hw, hh), o = out.getContext('2d');
   o.setTransform(1, 0, 0, 1, 0, 0); o.globalAlpha = 1; o.globalCompositeOperation = 'source-over'; o.filter = 'none'; o.imageSmoothingEnabled = true; o.imageSmoothingQuality = 'high';
   ctx.save(); screen(); ctx.globalAlpha = 1; ctx.filter = 'none';
@@ -338,27 +341,27 @@ function vhTape() {
     if (sig === 'static') { const nz = vhNoise(Math.round(W / 3), Math.round(H / 3), hash('st', F), 1); o.imageSmoothingEnabled = false; o.drawImage(nz, 0, 0, hw, hh); o.imageSmoothingEnabled = true; o.fillStyle = 'rgba(0,0,0,0.25)'; o.fillRect(0, 0, hw, hh); }
   } else {
     // 1 luma at tape resolution, graded: lifted contrast, drained saturation
-    const lw = Math.round(W / 2.6), lh = Math.round(H / 2.2), lo = vhBuf('lo', lw, lh), lg = lo.getContext('2d');
+    const lw = TH ? W : Math.round(W / 2.6), lh = TH ? H : Math.round(H / 2.2), lo = vhBuf('lo', lw, lh), lg = lo.getContext('2d');
     lg.imageSmoothingQuality = 'high'; lg.filter = 'contrast(1.12) saturate(0.7) brightness(1.03)'; lg.drawImage(cv, 0, 0, lw, lh); lg.filter = 'none';
     // 2 chroma at a fraction of that, smeared sideways (VHS colour is ~40 lines wide)
-    const cw = Math.round(W / 14), chh = Math.round(H / 3), ch = vhBuf('ch', cw, chh), cg = ch.getContext('2d');
+    const cw = Math.round(W / (TH ? 5 : 14)), chh = Math.round(H / (TH ? 2 : 3)), ch = vhBuf('ch', cw, chh), cg = ch.getContext('2d');
     cg.imageSmoothingQuality = 'high'; cg.filter = 'saturate(1.35)'; cg.drawImage(lo, 0, 0, cw, chh); cg.filter = 'none';
     // 3 the picture (half res): luma, chroma bled and offset to the right, halation on the highlights
     const mid = vhBuf('mid', hw, hh), mg = mid.getContext('2d'); mg.imageSmoothingEnabled = true; mg.imageSmoothingQuality = 'high';
     mg.globalCompositeOperation = 'copy'; mg.drawImage(lo, 0, 0, hw, hh); mg.globalCompositeOperation = 'source-over';
     mg.globalCompositeOperation = 'color'; mg.globalAlpha = 0.9; mg.drawImage(ch, (9 + g * 26) * k, 2 * k, hw, hh); mg.globalAlpha = 1; mg.globalCompositeOperation = 'source-over';
     const bl = vhBuf('bl', lw, lh), bg = bl.getContext('2d'); bg.globalCompositeOperation = 'copy'; bg.filter = 'blur(5px) brightness(0.75) contrast(1.9)'; bg.drawImage(lo, 0, 0); bg.filter = 'none';
-    mg.globalCompositeOperation = 'screen'; mg.globalAlpha = 0.42; mg.drawImage(bl, 0, 0, hw, hh); mg.globalAlpha = 1; mg.globalCompositeOperation = 'source-over';
+    mg.globalCompositeOperation = 'screen'; mg.globalAlpha = TH ? 0.25 : 0.42; mg.drawImage(bl, 0, 0, hw, hh); mg.globalAlpha = 1; mg.globalCompositeOperation = 'source-over';
     // 4 redrawn in strips: line jitter, the rolling tracking band, head-switching noise at the bottom (frame units, scaled by k)
     // A steady tape is one shifted copy plus a few strips that matter (the tracking band, the head-switching edge, a few
     // jittered lines); a bad one (g > 0.2) is redrawn line by line. Strips are what cost: draw only the ones that move.
     const SH = 4, bandY = mod(TT * 230 + 300, H + 600) - 300, bandH = 90 + g * 260, hs = 46;
     o.fillStyle = '#000'; o.fillRect(0, 0, hw, hh);
-    const wob = Math.sin(TT * 2.3) * 2 + Math.sin(TT * 7.1) * 1.2, steady = g <= 0.2;
+    const wob = TH ? 0 : Math.sin(TT * 2.3) * 2 + Math.sin(TT * 7.1) * 1.2, steady = TH || g <= 0.2;
     if (steady) o.drawImage(mid, wob * k, 0, hw, hh);
     for (let y = 0; y < H; y += SH) {
       const inBand = Math.abs(y - bandY) < bandH / 2, edge = y > H - hs, jit = R.f() < 0.06;
-      if (steady && !inBand && !edge && !jit) continue;
+      if (TH || (steady && !inBand && !edge && !jit)) continue;
       let dx = wob + R.n(steady ? 2.5 : 1.2) + Math.sin(y * 0.013 + TT * 31) * g * 30 + (g > 0.3 ? R.n(g * 50) * (R.f() < g * 0.3 ? 1 : 0) : 0);
       if (inBand) dx += R.n(10 + g * 70) + 14;
       if (edge) dx += (y - (H - hs)) / hs * 46 + R.n(10);
@@ -372,11 +375,11 @@ function vhTape() {
     if (gr && gr.amt > 0) { o.globalCompositeOperation = 'multiply'; o.fillStyle = vhA(gr.tint, gr.amt); o.fillRect(0, 0, hw, hh); }
     // 6 snow and dropouts
     o.globalCompositeOperation = 'overlay'; o.imageSmoothingEnabled = false;
-    o.drawImage(vhNoise(Math.round(W / 4), Math.round(H / 4), hash('nz', F), 0.22 + g * 0.5), 0, 0, hw, hh); o.imageSmoothingEnabled = true;
+    o.drawImage(vhNoise(Math.round(W / 4), Math.round(H / 4), hash('nz', F), TH ? 0.12 : 0.22 + g * 0.5), 0, 0, hw, hh); o.imageSmoothingEnabled = true;
     o.globalCompositeOperation = 'source-over';
-    const nd = 4 + Math.round(g * 60);
+    const nd = TH ? 0 : 4 + Math.round(g * 60);
     for (let i = 0; i < nd; i++) { const y = R.r(0, H), x = R.r(-100, W), w = R.r(20, 160 + g * 500); o.fillStyle = `rgba(250,250,255,${R.r(0.35, 0.9)})`; o.fillRect(x * k, y * k, w * k, Math.max(1, R.r(1.5, 4) * k)); }
-    o.fillStyle = 'rgba(230,230,240,0.18)'; o.fillRect(0, (H - hs + R.r(0, 10)) * k, hw, Math.max(1, 5 * k));   // the head-switching line
+    if (!TH) o.fillStyle = 'rgba(230,230,240,0.18)', o.fillRect(0, (H - hs + R.r(0, 10)) * k, hw, Math.max(1, 5 * k));   // the head-switching line
   }
   // 7 back to full resolution: one smooth upscale, then scanlines, the vignette and the OSD
   ctx.globalCompositeOperation = 'copy'; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(out, 0, 0, W, H);
@@ -384,7 +387,8 @@ function vhTape() {
   ctx.globalCompositeOperation = 'source-over';
   const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.58);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.78)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-  const osd = typeof pieceOSD === 'function' ? pieceOSD(TT) : { tl: 'PLAY ▶', tr: 'SP', bl: null, br: null };
+  // a thumbnail (tools/thumb.mjs) zooms the frame: the deck's text would come out huge, so it carries its own tag instead
+  const osd = window.THUMB ? {} : typeof pieceOSD === 'function' ? pieceOSD(TT) : { tl: 'PLAY ▶', tr: 'SP', bl: null, br: null };
   const box = vhOSDBox(osd.layout);
   if (osd.tl) vhOSDText(osd.tl, box.l, box.top, box.fs);
   if (osd.tr) vhOSDText(osd.tr, box.r, box.top, box.fs, 'right');
@@ -412,5 +416,5 @@ const STYLE = {
   heroColor: '#e0a23a',
   post() { vhTape(); },
   ones: true,
-  scale: 0.5,   // the scene draws at half resolution: the tape keeps less than that (see vhTape)
+  scale: window.THUMB ? 1 : 0.5,   // the scene draws at half resolution: the tape keeps less than that (see vhTape); a thumbnail at full
 };

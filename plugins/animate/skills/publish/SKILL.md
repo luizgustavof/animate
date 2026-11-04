@@ -44,6 +44,7 @@ and opens the channel sign-in, where the user picks the channel and clicks Allow
 |---|---|---|
 | `<project>/publish/channels.json` | the user, with you | the channels: profile, hashtags, posting slots, one block per platform. Start from [channels.example.json](channels.example.json). Local only (`/publish/` is in `.gitignore`). |
 | `pieces/<name>/publish/meta.json` | **you** | the words per platform (below) |
+| `pieces/<name>/publish/thumb.png` | **you**, with `../animate/tools/thumb.mjs` | the cover (passed `thumbcheck.mjs`). TikTok takes no cover image through the API, so the TikTok copy (`renders/tiktok.mp4`, made before upload) **ends on it for 4 frames** with silence under them; `renders/tiktok.cover.json` says where. A direct post points `video_cover_timestamp_ms` at it; for a draft, tell the user: in the app, *Select cover* → drag to the end. A newer thumb.png remakes the copy. |
 | `pieces/<name>/publish/state.json` | the tool | per `channel/platform`: status, id, link, publish time, stats. **Read it before posting; never edit a posted entry by hand.** |
 | `~/.animate/google-oauth-client.json` | the user, once | the Google OAuth client (see Connect YouTube) |
 | `~/.animate/tokens/<account>.<platform>.json` | the tool | one sign-in per account. Secrets: never print, copy, commit or move them into the project (the project folder may be synced to a cloud drive). |

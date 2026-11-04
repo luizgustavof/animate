@@ -15,7 +15,7 @@ import {
   listPieces, loadChannels, channelFor, readJson, metaFile, loadState, saveState, videoFile, probe, lock,
 } from './store.mjs';
 import { PLATFORMS, platformState } from './platforms.mjs';
-import { ensureLight } from './encode.mjs';
+import { ensureLight, coverAt } from './encode.mjs';
 
 export class PublishError extends Error {}
 
@@ -138,6 +138,10 @@ export async function publish(p, opts = {}, emit = () => {}) {
       catch (e) { emit({ type: 'failed', platform, error: e.message }); results.push({ platform, status: 'failed', error: e.message }); continue; }
       const v = mod.validate({ meta, cfg, channel, video, publishAt, privacy: opts.privacy, tiktok: opts.tiktok });
       if (v.request && video?.duration) v.request.duration = video.duration;
+      // the light copy ends on the cover (publish/thumb.png): a direct post points TikTok at it; a draft's cover is picked in the app
+      const cover = coverAt(file);
+      if (v.request?.post && cover != null) v.request.post.video_cover_timestamp_ms = Math.round(cover * 1000);
+      if (v.request && cover != null) v.request.coverAt = cover;
       emit({
         type: 'item', platform, key, account, connected: mod.connected(account), file: path.relative(p.root, file), video, publishAt,
         warnings: v.warnings, errors: v.errors, request: v.request,
