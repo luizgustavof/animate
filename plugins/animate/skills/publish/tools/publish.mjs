@@ -63,6 +63,7 @@ async function cmdAuth() {
   if (!account || !platform) fail('usage: auth <channel or account> <platform>');
   const st = platformState(platform);
   if (st !== 'ready') fail(st === 'planned' ? `${platform} is not built yet` : `unknown platform ${platform}`);
+  if (platform === 'tiktok' && !PLATFORMS.tiktok.hasApp()) fail('the TikTok developer app is not set up: open the studio → Canais → TikTok and paste the Client key and Client secret (docs/connect-tiktok.md)');
   const who = await PLATFORMS[platform].auth(account);
   console.log(`signed in "${account}" on ${platform}: ${who.title} (${who.id})`);
   console.log('If that is not the channel you meant, run auth again and pick the right account / brand channel.');

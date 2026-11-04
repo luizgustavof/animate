@@ -21,7 +21,7 @@ lib/jobs.mjs        long work (upload, render, AI) with progress events and canc
 lib/store.mjs       paths, channels.json, meta.json, state.json, probe (cached), the per-piece lock
 lib/platforms.mjs   the registry: PLATFORMS (built), PLANNED, LABELS
 lib/oauth.mjs       loopback OAuth with PKCE (desktop sign-in, no secrets in the browser)
-tools/platforms/    one module per platform (youtube.mjs today)
+tools/platforms/    one module per platform (youtube.mjs, tiktok.mjs)
 ```
 
 Node built-ins only in `tools/` (fetch, http, crypto, child_process). The studio UI is the one place with npm dependencies, and
@@ -56,6 +56,10 @@ only to build it; `studio.mjs` serves `studio/dist/` and builds it once if it's 
 - `unpublish(p, { key })` (publisher) calls `remove`, then moves the entry from `posts` to `removed` (with `removedAt`): history is
   kept, and the piece counts as not posted there. The studio route `POST /api/pieces/:slug/unpublish` needs
   `{ key, confirm: <slug> }`; the CLI `unpost` needs `--yes`. Both are irreversible on the platform: always ask the user first.
+
+A platform only counts as "left to post" (`todo`) and is posted to by default once `connected()` is true, so building a
+platform never makes every episode look unfinished. TikTok: drafts only (`status: "draft"`, no `url`), the app's key/secret
+in `~/.animate/tiktok-app.json` (saved by `PUT /api/platforms/tiktok/app`, write-only), `remove()` only forgets locally.
 
 Then add it to `PLATFORMS` in `lib/platforms.mjs` (and remove it from `PLANNED`), write `docs/connect-<name>.md`, and add its
 character limits to the studio's previews. Test against a fake `fetch` first (see "Testing").

@@ -103,7 +103,11 @@ Hashtags come from the channel's `hashtags.always` plus the best fits from `hash
 
 Step by step, with the traps we already hit: [docs/connect-youtube.md](docs/connect-youtube.md),
 [docs/connect-tiktok.md](docs/connect-tiktok.md), [docs/connect-instagram.md](docs/connect-instagram.md). The user does the clicks that
-touch their account or a secret (signing in, Allow, downloading a key); never read a client secret off a page.
+touch their account or a secret (signing in, Allow, downloading a key, pasting the TikTok Client secret into the studio form);
+never read a client secret off a page or ask for it in chat.
+**TikTok** works in draft mode: the video lands in the creator's TikTok inbox and they press Post in the app (paste the
+caption from the studio's Copy button). No scheduling through the API; `--at` only warns. One-time setup is the user's own
+developer app in sandbox (studio: Canais → TikTok shows the five steps); then `auth <channel> tiktok` or Conectar.
 More channels: add a block in `channels.json` (or the studio's "Novo canal") and sign each in. Several channels on one Google
 account each get their own `account` name and their own sign-in.
 

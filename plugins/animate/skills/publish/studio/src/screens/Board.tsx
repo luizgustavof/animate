@@ -134,7 +134,7 @@ const Row = memo(function Row({ r }: { r: BoardRow }) {
             const post = r.posts.find(x => x.platform === id);
             const ready = p.state === 'ready';
             const color = !ready ? 'text-ink-3/35' : post ? (post.status === 'scheduled' ? 'text-amber' : 'text-ink') : p.connected ? 'text-ink-2' : 'text-ink-3';
-            const note = !ready ? 'em breve' : post ? (post.status === 'scheduled' ? 'agendado' : 'enviado') : p.connected ? 'conectado, ainda não enviado' : 'não conectado';
+            const note = !ready ? 'em breve' : post ? (post.status === 'scheduled' ? 'agendado' : post.status === 'draft' ? 'rascunho no app' : 'enviado') : p.connected ? 'conectado, ainda não enviado' : 'não conectado';
             return <PlatformIcon key={id} id={id} size={17} className={`shrink-0 ${color}`} title={`${p.label}: ${note}`} />;
           })}
         </div>
@@ -149,7 +149,7 @@ const Row = memo(function Row({ r }: { r: BoardRow }) {
             <span className="relative h-[3px] w-full overflow-hidden rounded-full bg-flap" role="progressbar" aria-valuenow={Math.round(r.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Envio">
               <span className="absolute inset-y-0 left-0 bg-amber transition-[width] duration-500 ease-out" style={{ width: `${r.progress * 100}%` }} />
             </span>
-          ) : r.state === 'privado' ? <span className="text-[0.78rem] text-ink-3">Torne público no YouTube Studio</span> : null}
+          ) : r.state === 'privado' ? <span className="text-[0.78rem] text-ink-3">Torne público no YouTube Studio</span> : r.state === 'rascunho' ? <span className="text-[0.78rem] text-ink-3">Poste pelo app do TikTok</span> : null}
         </div>
       </td>
       <td className="pr-5 text-ink-3 transition-colors group-hover:text-ink"><Icon name="arrow" size={16} /></td>

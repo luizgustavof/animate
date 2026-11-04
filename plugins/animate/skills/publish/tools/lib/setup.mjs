@@ -5,6 +5,7 @@ import path from 'node:path';
 import { loadChannels } from './store.mjs';
 import { PLATFORMS, platformState } from './platforms.mjs';
 import * as youtube from '../platforms/youtube.mjs';
+import * as tiktok from '../platforms/tiktok.mjs';
 
 // the newest Google client file in Downloads (Google names it client_secret_<id>.json)
 export function clientDownload(since = 0) {
@@ -28,6 +29,7 @@ export function ensureGoogleKey() {
 export function connections(root) {
   const channels = loadChannels(root);
   const googleKey = youtube.hasClient();
+  const tiktokApp = tiktok.hasApp();
   const out = {};
   for (const [name, c] of Object.entries(channels)) {
     out[name] = {};
@@ -37,10 +39,12 @@ export function connections(root) {
       const connected = state === 'ready' ? PLATFORMS[platform].connected(account) : null;
       const needs = [];
       if (platform === 'youtube' && !googleKey) needs.push('google-key');
+      if (platform === 'tiktok' && !tiktokApp) needs.push('tiktok-app');
       if (state === 'ready' && !connected) needs.push('sign-in');
       if (connected && cfg.channelId && connected.id !== cfg.channelId) needs.push('wrong-channel');
+      if (connected && cfg.openId && connected.id !== cfg.openId) needs.push('wrong-channel');
       out[name][platform] = { state, account, connected, needs };
     }
   }
-  return { googleKey, channels: out };
+  return { googleKey, tiktokApp, channels: out };
 }

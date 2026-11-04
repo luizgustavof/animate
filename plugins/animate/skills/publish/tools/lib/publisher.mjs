@@ -79,7 +79,9 @@ export function overview(root, { strict = false } = {}) {
     let hit = null;
     try { hit = channelFor(p, channels, undefined, { strict }); } catch {}
     const posts = loadState(p).posts;
-    const todo = hit ? Object.keys(hit[1].platforms || {}).filter(pl => platformState(pl) === 'ready' && !posts[`${hit[0]}/${pl}`]?.id) : [];
+    // what's left: built platforms this channel is connected to and hasn't posted to yet (an unconnected one isn't "left")
+    const todo = hit ? Object.entries(hit[1].platforms || {}).filter(([pl, cfg]) => platformState(pl) === 'ready'
+      && !posts[`${hit[0]}/${pl}`]?.id && PLATFORMS[pl].connected(cfg.account || hit[0])).map(([pl]) => pl) : [];
     return {
       p, slug: p.slug, title: p.piece.title || p.slug, series: p.piece.series || null,
       channel: hit?.[0] || null, render, meta: fs.existsSync(metaFile(p)), posts, todo,
@@ -92,7 +94,13 @@ export function overview(root, { strict = false } = {}) {
 export async function publish(p, opts = {}, emit = () => {}) {
   const channels = loadChannels(p.root);
   const [channelName, channel] = channelFor(p, channels, opts.channel);
-  const { ready, skipped } = platformsOf(channel, opts.platform);
+  const { ready: built, skipped } = platformsOf(channel, opts.platform);
+  // by default only the platforms this channel is connected to; naming one (--platform) tries it and says what's missing
+  const ready = opts.platform ? built : built.filter(pl => {
+    const ok = PLATFORMS[pl].connected(channel.platforms[pl].account || channelName);
+    if (!ok) skipped.push({ platform: pl, reason: 'not connected' });
+    return ok;
+  });
   for (const s of skipped) emit({ type: 'skip', ...s });
   if (!ready.length) throw new PublishError('nothing to post to');
   const meta = readJson(metaFile(p), null);

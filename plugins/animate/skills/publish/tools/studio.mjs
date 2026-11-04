@@ -166,6 +166,7 @@ route('GET', '/api/state', (req, res) => {
   const channels = loadChannels(ROOT);
   json(res, 200, {
     googleKey: conn.googleKey,
+    tiktokApp: conn.tiktokApp,
     channels: Object.entries(channels).map(([n, c]) => publicChannel(n, c, conn.channels[n])),
     pieces: overview(ROOT, { strict: true }).map(rowOut),
     jobs: jobs.list(),
@@ -304,10 +305,22 @@ route('POST', '/api/channels/:name/connect/:platform', (req, res, { name, platfo
   const account = c.platforms[platform].account || name;
   const job = jobs.start('connect', `${name}/${platform}`, async ({ emit }) => {
     if (platform === 'youtube' && !ensureGoogleKey()) throw new Error('NEEDS_GOOGLE_KEY');
-    emit({ type: 'log', message: 'Abrimos o login no seu navegador. Escolha a conta e o canal e clique em Permitir.' });
+    if (platform === 'tiktok' && !PLATFORMS.tiktok.hasApp()) throw new Error('NEEDS_TIKTOK_APP');
+    emit({ type: 'log', message: platform === 'tiktok'
+      ? 'Abrimos o login do TikTok no seu navegador. Entre na conta do canal e clique em Autorizar.'
+      : 'Abrimos o login no seu navegador. Escolha a conta e o canal e clique em Permitir.' });
     return PLATFORMS[platform].auth(account);
   });
   json(res, 202, job);
+});
+
+// the user's own TikTok developer app: they paste Client key + Client secret once. Write-only: nothing about it is ever
+// returned except "set up or not" in /api/state.
+route('PUT', '/api/platforms/tiktok/app', async (req, res) => {
+  const b = await body(req);
+  try { PLATFORMS.tiktok.saveApp({ clientKey: b.clientKey, clientSecret: b.clientSecret }); }
+  catch (e) { return fail(res, 400, e.message); }
+  json(res, 200, { ok: true });
 });
 
 route('GET', '/api/stats', (req, res) => {

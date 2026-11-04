@@ -2,7 +2,7 @@
 import type { Channel, PieceRow, PlatformId, Post } from '../api/types';
 import type { LiveJob } from '../api/events';
 
-export type RowState = 'enviando' | 'agendado' | 'pronto' | 'sem-texto' | 'sem-video' | 'no-ar' | 'privado' | 'falhou' | 'escrevendo';
+export type RowState = 'enviando' | 'agendado' | 'pronto' | 'sem-texto' | 'sem-video' | 'no-ar' | 'rascunho' | 'privado' | 'falhou' | 'escrevendo';
 
 export interface BoardRow {
   row: PieceRow;
@@ -26,7 +26,7 @@ export const channelCode = (c: Channel | null | undefined) => {
   return (words.length > 1 ? words.map(w => w[0]).join('') : c.name.slice(0, 3)).slice(0, 4).toUpperCase();
 };
 
-const RANK: Record<RowState, number> = { enviando: 0, escrevendo: 1, falhou: 2, agendado: 3, pronto: 4, 'sem-texto': 5, 'sem-video': 6, privado: 7, 'no-ar': 8 };
+const RANK: Record<RowState, number> = { enviando: 0, escrevendo: 1, falhou: 2, agendado: 3, pronto: 4, rascunho: 5, 'sem-texto': 6, 'sem-video': 7, privado: 8, 'no-ar': 9 };
 
 export function boardRows(pieces: PieceRow[], channels: Channel[], jobs: Record<string, LiveJob>): BoardRow[] {
   const byId = new Map(channels.map(c => [c.id, c]));
@@ -41,6 +41,7 @@ export function boardRows(pieces: PieceRow[], channels: Channel[], jobs: Record<
       const scheduled = posts.filter(p => p.status === 'scheduled').map(p => p.publishAt!).sort()[0] ?? null;
       const posted = posts.filter(p => p.status === 'public' || p.status === 'unlisted').map(p => p.postedAt!).sort().at(-1) ?? null;
       const privateOnly = posts.some(p => p.status === 'private') && !scheduled && !posted;
+      const draftOnly = posts.some(p => p.status === 'draft') && !scheduled && !posted;
       let state: RowState;
       if (up || posts.some(p => p.status === 'uploading')) state = 'enviando';
       else if (writing) state = 'escrevendo';
@@ -48,9 +49,10 @@ export function boardRows(pieces: PieceRow[], channels: Channel[], jobs: Record<
       else if (scheduled && row.todo.length === 0) state = 'agendado';
       else if (posted && row.todo.length === 0) state = 'no-ar';
       else if (privateOnly && row.todo.length === 0) state = 'privado';
+      else if (draftOnly && row.todo.length === 0) state = 'rascunho';
       else if (!row.render) state = 'sem-video';
       else state = row.meta ? 'pronto' : 'sem-texto';
-      const at = state === 'agendado' ? scheduled : state === 'no-ar' || state === 'privado' ? (posted ?? posts[0]?.postedAt ?? null) : null;
+      const at = state === 'agendado' ? scheduled : state === 'no-ar' || state === 'privado' || state === 'rascunho' ? (posted ?? posts[0]?.postedAt ?? null) : null;
       const progress = up?.progress ? up.progress.sent / Math.max(1, up.progress.total) : null;
       return { row, code: codeOf(row.slug), channel: byId.get(row.channel!) ?? null, state, at, posts, progress };
     })
@@ -64,10 +66,10 @@ export function boardRows(pieces: PieceRow[], channels: Channel[], jobs: Record<
 
 export const STATE_WORD: Record<RowState, string> = {
   enviando: 'Enviando', escrevendo: 'Escrevendo', falhou: 'Falhou', agendado: 'Agendado', pronto: 'Pronto',
-  'sem-texto': 'Sem texto', 'sem-video': 'Sem vídeo', privado: 'Privado', 'no-ar': 'No ar',
+  'sem-texto': 'Sem texto', 'sem-video': 'Sem vídeo', privado: 'Privado', 'no-ar': 'No ar', rascunho: 'Rascunho',
 };
 export const STATE_TONE: Record<RowState, 'ink' | 'amber' | 'red' | 'dim'> = {
-  enviando: 'amber', escrevendo: 'amber', falhou: 'red', agendado: 'amber', pronto: 'ink', 'sem-texto': 'dim', 'sem-video': 'dim', privado: 'ink', 'no-ar': 'ink',
+  enviando: 'amber', escrevendo: 'amber', falhou: 'red', agendado: 'amber', pronto: 'ink', 'sem-texto': 'dim', 'sem-video': 'dim', privado: 'ink', 'no-ar': 'ink', rascunho: 'ink',
 };
 
 export const PLATFORM_CODE: Record<PlatformId, string> = { youtube: 'YT', tiktok: 'TT', instagram: 'IG' };

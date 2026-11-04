@@ -30,6 +30,10 @@ export function useSaveMeta(slug: string) {
 export const useWriteWords = (slug: string) => useMutation({ mutationFn: () => api.writeWords(slug) });
 export const usePublish = (slug: string) => useMutation({ mutationFn: (o: { platforms: string[]; at: string | null; privacy?: string }) => api.publish(slug, o) });
 export const useUnpublish = (slug: string) => useMutation({ mutationFn: (key: string) => api.unpublish(slug, key) });
+export function useSaveTikTokApp() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (o: { clientKey: string; clientSecret: string }) => api.saveTikTokApp(o.clientKey, o.clientSecret), onSuccess: () => qc.invalidateQueries({ queryKey: ['state'] }) });
+}
 export const useConnect = () => useMutation({ mutationFn: (o: { channel: string; platform: string }) => api.connect(o.channel, o.platform) });
 export const useBatchPlan = (enabled: boolean) => useQuery({ queryKey: ['batch'], enabled, queryFn: ({ signal }) => api.batchPlan(signal), staleTime: 10_000 });
 export const useBatch = () => useMutation({ mutationFn: (slugs: string[]) => api.batch(slugs) });

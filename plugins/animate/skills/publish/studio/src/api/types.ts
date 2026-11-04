@@ -7,7 +7,7 @@ export interface ChannelPlatform {
   label: string;
   state: PlatformState;
   connected: { id: string; title: string } | null;
-  needs: Array<'google-key' | 'sign-in' | 'wrong-channel'>;
+  needs: Array<'google-key' | 'tiktok-app' | 'sign-in' | 'wrong-channel'>;
   privacy: string | null;
   madeForKids: boolean | null;
   syntheticMedia: boolean | null;
@@ -28,7 +28,7 @@ export interface Channel {
   platforms: Partial<Record<PlatformId, ChannelPlatform>>;
 }
 
-export type PostStatus = 'uploading' | 'scheduled' | 'public' | 'unlisted' | 'private';
+export type PostStatus = 'uploading' | 'scheduled' | 'public' | 'unlisted' | 'private' | 'draft';
 
 export interface Post {
   platform: PlatformId;
@@ -122,6 +122,7 @@ export interface JobEvent {
 
 export interface StudioState {
   googleKey: boolean;
+  tiktokApp: boolean;
   channels: Channel[];
   pieces: PieceRow[];
   jobs: Job[];

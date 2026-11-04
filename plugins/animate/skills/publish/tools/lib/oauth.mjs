@@ -13,17 +13,22 @@ export function openBrowser(url) {
   try { spawn(cmd, args, { stdio: 'ignore', detached: true }).unref(); } catch {}
 }
 
-export async function authorizeLoopback({ authEndpoint, clientId, scopes, extra = {}, timeoutMs = 5 * 60e3 }) {
-  const verifier = b64url(crypto.randomBytes(32));
-  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+// options for providers that differ from RFC 8252 defaults (TikTok: client_key, comma scopes, a hex challenge, a /callback/ path)
+export async function authorizeLoopback({
+  authEndpoint, clientId, scopes, extra = {}, timeoutMs = 5 * 60e3,
+  clientParam = 'client_id', scopeSep = ' ', challengeEncoding = 'base64url', callbackPath = '',
+}) {
+  const verifier = b64url(crypto.randomBytes(48));
+  const digest = crypto.createHash('sha256').update(verifier).digest();
+  const challenge = challengeEncoding === 'hex' ? digest.toString('hex') : b64url(digest);
   const state = b64url(crypto.randomBytes(16));
   const server = http.createServer();
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  const redirectUri = `http://127.0.0.1:${server.address().port}`;
+  const redirectUri = `http://127.0.0.1:${server.address().port}${callbackPath}`;
 
   const url = new URL(authEndpoint);
   const params = {
-    client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
+    [clientParam]: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(scopeSep),
     state, code_challenge: challenge, code_challenge_method: 'S256', ...extra,
   };
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);

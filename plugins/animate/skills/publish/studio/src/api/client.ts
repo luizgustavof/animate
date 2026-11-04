@@ -51,6 +51,7 @@ export const api = {
     call<Job>('POST', `/api/pieces/${encodeURIComponent(slug)}/publish`, opts),
   cancel: (id: string) => call<{ cancelled: boolean }>('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`, {}),
   nextSlot: (channel: string, signal?: AbortSignal) => call<Record<string, string | null>>('GET', `/api/channels/${encodeURIComponent(channel)}/next-slot`, undefined, signal),
+  saveTikTokApp: (clientKey: string, clientSecret: string) => call<{ ok: true }>('PUT', '/api/platforms/tiktok/app', { clientKey, clientSecret }),
   connect: (channel: string, platform: string) => call<Job>('POST', `/api/channels/${encodeURIComponent(channel)}/connect/${platform}`, {}),
   batchPlan: (signal?: AbortSignal) => call<BatchItem[]>('GET', '/api/batch', undefined, signal),
   batch: (slugs: string[]) => call<Job>('POST', '/api/batch', { slugs }),

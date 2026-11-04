@@ -46,6 +46,12 @@ export const STAGE: Record<Stage, string> = {
 export function issueText(i: Issue): string {
   switch (i.code) {
     case 'no-block': return 'Ainda não tem texto pra esta plataforma.';
+    case 'caption-empty': return 'Falta a legenda do TikTok (você cola no app ao postar o rascunho).';
+    case 'caption-long': return `A legenda tem ${i.value} caracteres; o TikTok aceita ${i.limit}.`;
+    case 'too-long': return 'O vídeo passa de 10 minutos, o limite de envio pela API do TikTok.';
+    case 'too-short': return 'O TikTok pede pelo menos 3 segundos.';
+    case 'not-vertical': return 'O vídeo está deitado: no TikTok o vertical (9:16) fica melhor.';
+    case 'no-schedule': return 'No TikTok o rascunho vai agora; você posta (ou agenda) pelo app.';
     case 'title-empty': return 'Falta o título.';
     case 'title-long': return `O título tem ${i.value} caracteres; o máximo é ${i.limit}.`;
     case 'title-feed': return `O título tem ${i.value} caracteres: no feed do Shorts aparecem uns 40 a 70. Dá pra encurtar?`;
@@ -57,7 +63,7 @@ export function issueText(i: Issue): string {
     case 'made-for-kids': return 'Falta dizer se o canal é feito para crianças (declaração legal do YouTube).';
     case 'not-short': return 'O vídeo não é vertical ou passa de 3 min: vai como vídeo normal, não como Short.';
     case 'no-audio': return 'O vídeo está sem som.';
-    case 'file-huge': return 'O arquivo é grande demais (mais de 256 GB).';
+    case 'file-huge': return 'O arquivo é grande demais para essa plataforma.';
     case 'privacy': return 'Visibilidade inválida.';
     case 'too-soon': return 'O horário precisa ser daqui a pelo menos 15 minutos.';
     default: return i.text;
@@ -72,6 +78,17 @@ export function errorText(msg: string | null | undefined): string {
   if (/already gone on the platform/.test(msg)) return 'O vídeo já não estava mais no YouTube.';
   if (/can't delete that video/.test(msg)) return 'Este login não pode excluir esse vídeo. Ele está em outro canal?';
   if (/can't delete posts from here yet/.test(msg)) return 'Essa plataforma ainda não deixa excluir por aqui. Exclua no app e tente de novo.';
+  if (msg.startsWith('NEEDS_TIKTOK_APP')) return 'Falta configurar o app do TikTok (uma vez): siga os passos em Canais → TikTok.';
+  if (msg.startsWith('TIKTOK_APP:')) return /secret/i.test(msg) ? 'Isso não parece um Client secret do TikTok. Copie de novo em App details.' : 'Isso não parece um Client key do TikTok. Copie de novo em App details.';
+  if (/scope_not_authorized/.test(msg)) return 'O TikTok não deu permissão de envio. Conecte de novo e deixe todas as permissões marcadas.';
+  if (/unaudited_client_can_only_post_to_private_accounts/.test(msg)) return 'Essa conta do TikTok ainda não é usuária de teste do app. Adicione em Sandbox settings → Target users (pode levar 1 hora).';
+  if (/spam_risk_too_many_posts|spam_risk_too_many_pending/.test(msg)) return 'O TikTok limitou os envios desta conta por hoje (ou há rascunhos demais esperando). Poste ou apague os rascunhos no app.';
+  if (/TikTok .*rate_limit_exceeded/.test(msg)) return 'O TikTok pediu calma: no máximo 6 envios por minuto. Tente de novo em um minuto.';
+  if (/TikTok refused the video: (.*)/.test(msg)) return `O TikTok recusou o vídeo (${/: (.*)$/.exec(msg)?.[1]}). Confira formato, duração e resolução.`;
+  if (/TikTok is still processing the draft/.test(msg)) return 'O TikTok ainda está processando: o rascunho aparece na caixa de entrada do app em alguns minutos.';
+  if (/TikTok drafts can only be deleted in the app/.test(msg)) return 'O TikTok não deixa apagar por aqui: apague o rascunho no app.';
+  if (/TikTok drafts go now/.test(msg)) return 'No TikTok o rascunho vai agora; você posta (ou agenda) pelo app quando quiser.';
+  if (/refusing to upload to the wrong account/.test(msg)) return 'O login do TikTok é de outra conta. Nada foi enviado. Conecte a conta certa em Canais.';
   if (/studio token/i.test(msg)) return 'Abra o Estúdio pelo atalho na área de trabalho (ou peça ao Claude: "abre o estúdio").';
   if (msg.startsWith('NEEDS_LOGIN')) return 'O Claude Code está deslogado neste computador. Abra um terminal, digite claude e entre na sua conta uma vez.';
   if (msg === 'NEEDS_GOOGLE_KEY') return 'Falta a chave do Google: baixe o JSON do cliente "Desktop app" para a pasta Downloads.';

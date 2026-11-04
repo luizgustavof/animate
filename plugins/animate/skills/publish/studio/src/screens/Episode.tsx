@@ -291,22 +291,23 @@ function WritingStrip({ log, onCancel }: { log: string[]; onCancel: () => void }
 type When = 'next' | 'choose' | 'now';
 
 // one thing already sent, with the way to take it back. Deleting asks first, in words, because the platform can't undo it.
-function PostedItem({ slug, postKey, post: p, label }: { slug: string; postKey: string; post: PieceDetail['posts'][string]; label: string }) {
+function PostedItem({ slug, postKey, post: p, label, caption }: { slug: string; postKey: string; post: PieceDetail['posts'][string]; label: string; caption: string }) {
   const [asking, setAsking] = useState(false);
   const unpublish = useUnpublish(slug);
   const job = useJobFor('unpublish', `${slug}:${postKey}`);
   const busy = unpublish.isPending || job?.status === 'running';
   const failed = unpublish.error?.message ?? (job?.status === 'failed' ? job.error : null);
   const lastLog = job?.status === 'running' ? job.events.filter(e => e.type === 'unpublish:log').at(-1)?.message : null;
-  const what = p.status === 'scheduled' ? `O vídeo agendado para ${p.publishAt ? whenLong(p.publishAt) : 'depois'} some do canal e não vai ao ar.`
+  const what = p.platform === 'tiktok' ? 'O Estúdio esquece este envio e o episódio volta a ficar pronto para o TikTok. O TikTok não deixa apagar por aqui: apague o rascunho (ou o post) no app.'
+    : p.status === 'scheduled' ? `O vídeo agendado para ${p.publishAt ? whenLong(p.publishAt) : 'depois'} some do canal e não vai ao ar.`
     : p.status === 'uploading' ? 'O envio interrompido é esquecido; o episódio volta a ficar pronto.'
     : 'O vídeo sai do canal, com as visualizações e os comentários.';
   return (
     <li className="flap-row grid gap-3 rounded-md px-4 py-3">
       <div className="flex flex-wrap items-center gap-4">
         <PlatformIcon id={p.platform} size={17} className="text-ink" />
-        <Flap text={p.status === 'scheduled' ? 'Agendado' : p.status === 'public' ? 'No ar' : p.status === 'uploading' ? 'Parado' : 'Privado'} cells={8} size="xs" tone={p.status === 'scheduled' ? 'amber' : 'ink'} />
-        <span className="text-[0.95rem] text-ink-2">{p.publishAt ? `sai ${when(p.publishAt)}` : p.postedAt ? `enviado ${when(p.postedAt)}` : 'envio interrompido: publique de novo para continuar'}</span>
+        <Flap text={p.status === 'scheduled' ? 'Agendado' : p.status === 'public' ? 'No ar' : p.status === 'draft' ? 'Rascunho' : p.status === 'uploading' ? 'Parado' : 'Privado'} cells={8} size="xs" tone={p.status === 'scheduled' ? 'amber' : 'ink'} />
+        <span className="text-[0.95rem] text-ink-2">{p.status === 'draft' ? `na caixa de entrada do TikTok desde ${when(p.postedAt!)}: poste pelo app` : p.publishAt ? `sai ${when(p.publishAt)}` : p.postedAt ? `enviado ${when(p.postedAt)}` : 'envio interrompido: publique de novo para continuar'}</span>
         <span className="ml-auto flex items-center gap-4">
           {p.url ? <a href={p.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[0.85rem] font-medium text-amber hover:underline">Abrir <Icon name="external" size={14} /></a> : null}
           {!asking && !busy ? (
@@ -316,17 +317,18 @@ function PostedItem({ slug, postKey, post: p, label }: { slug: string; postKey: 
           ) : null}
         </span>
       </div>
+      {p.status === 'draft' ? <div><CopyCaption text={caption} /></div> : null}
       {p.warning ? <span className="text-[0.9rem] text-ink-3">{errorText(p.warning)}</span> : null}
       <AnimatePresence initial={false}>
         {asking || busy ? (
           <m.div key="ask" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }} className="overflow-hidden">
             <div role="alertdialog" aria-label={`Excluir do ${label}`} className="grid gap-3 rounded-md border border-red/40 bg-red/[0.06] p-4">
-              <p className="text-[0.95rem] text-ink"><strong className="font-semibold">Excluir do {label}?</strong> {what} Isso não dá para desfazer.</p>
+              <p className="text-[0.95rem] text-ink"><strong className="font-semibold">{p.platform === 'tiktok' ? 'Esquecer este envio?' : `Excluir do ${label}?`}</strong> {what}{p.platform === 'tiktok' ? '' : ' Isso não dá para desfazer.'}</p>
               {lastLog ? <p className="text-[0.88rem] text-ink-2">{errorText(String(lastLog))}</p> : null}
               {failed ? <p className="text-[0.9rem] text-red">{errorText(failed)}</p> : null}
               <div className="flex flex-wrap gap-2">
-                <Button kind="danger" size="sm" icon="trash" busy={busy} disabled={busy} onClick={() => unpublish.mutate(postKey)}>Excluir de vez</Button>
+                <Button kind="danger" size="sm" icon="trash" busy={busy} disabled={busy} onClick={() => unpublish.mutate(postKey)}>{p.platform === 'tiktok' ? 'Esquecer envio' : 'Excluir de vez'}</Button>
                 {!busy ? <Button kind="quiet" size="sm" onClick={() => { setAsking(false); unpublish.reset(); }}>Manter</Button> : null}
               </div>
             </div>
@@ -366,18 +368,19 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
   );
 
   if (running || (job && job.status !== 'running' && job.events.some(e => e.type === 'publish:done' || e.type === 'publish:failed'))) {
-    return <Progress job={job} onCancel={() => job && cancel.mutate(job.id)} />;
+    return <Progress job={job} onCancel={() => job && cancel.mutate(job.id)} caption={piece.meta?.tiktok?.caption ?? ''} />;
   }
 
   const summary = picked.length
     ? `${picked.map(p => channel?.platforms[p]?.label).join(' e ')}${channel ? `, no canal ${channel.platforms[picked[0]!]?.connected?.title ?? channel.name}` : ''}, ${testPrivate ? 'como privado (teste)' : 'público'}, ${at ? whenLong(at) : 'agora'}.`
     : 'Escolha pelo menos um destino.';
+  const tiktokNote = picked.includes('tiktok') ? (picked.length > 1 ? ' O TikTok recebe como rascunho agora; você posta pelo app.' : ' Vai como rascunho para a caixa de entrada do TikTok; você posta pelo app.') : '';
 
   return (
     <div className="grid gap-8">
       {posted.length ? (
         <ul className="grid gap-[3px]" aria-label="Já partiu">
-          {posted.map(([key, p]) => <PostedItem key={key} slug={piece.slug} postKey={key} post={p} label={channel?.platforms[p.platform]?.label ?? p.platform} />)}
+          {posted.map(([key, p]) => <PostedItem key={key} slug={piece.slug} postKey={key} post={p} label={channel?.platforms[p.platform]?.label ?? p.platform} caption={piece.meta?.tiktok?.caption ?? ''} />)}
         </ul>
       ) : null}
 
@@ -428,7 +431,7 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
       {publish.error ? <p className="border border-[#5a2422] bg-[#1d0f0f] px-4 py-3 text-red">{errorText(publish.error.message)}</p> : null}
 
       <div className="grid gap-4 border-t border-rule pt-6">
-        <p className="text-[1.05rem] text-ink-2"><span className="text-ink">Vai para </span>{summary}</p>
+        <p className="text-[1.05rem] text-ink-2"><span className="text-ink">Vai para </span>{summary}{tiktokNote}</p>
         <div>
           <Button kind="primary" size="lg" icon="arrow" disabled={!picked.length || errors.length > 0 || (whenMode === 'choose' && !chosen) || (whenMode === 'next' && !at)}
             onClick={() => publish.mutate({ platforms: picked, at: whenMode === 'now' ? null : at, privacy: testPrivate ? 'private' : undefined })}>
@@ -440,26 +443,47 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
   );
 }
 
-function Progress({ job, onCancel }: { job: ReturnType<typeof useJobFor>; onCancel: () => void }) {
+type DoneEntry = { platform?: string; url?: string; status?: string; publishAt?: string; warning?: string };
+
+// a TikTok draft carries no caption: the creator pastes it in the app, so it's one click away here
+function CopyCaption({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { if (!copied) return; const t = window.setTimeout(() => setCopied(false), 1800); return () => window.clearTimeout(t); }, [copied]);
+  if (!text) return null;
+  return <Button size="sm" kind="frame" icon={copied ? 'check' : 'link'} onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopied(true)); }}>{copied ? 'Legenda copiada' : 'Copiar legenda do TikTok'}</Button>;
+}
+
+function DoneLine({ e, caption }: { e: DoneEntry; caption: string }) {
+  const draft = e.status === 'draft';
+  return (
+    <li className="grid gap-2 rounded-md bg-flap px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <PlatformIcon id={e.platform ?? ''} size={17} className="text-ink" />
+        <span className={`text-[0.95rem] font-semibold ${e.status === 'scheduled' ? 'text-amber' : 'text-ink'}`}>{draft ? 'Rascunho no TikTok' : e.status === 'scheduled' ? 'Agendado' : e.status === 'public' ? 'No ar' : 'Enviado'}</span>
+        <span className="text-[0.92rem] text-ink-2">{draft ? 'Abra o TikTok, toque na notificação da caixa de entrada, cole a legenda e poste.' : e.publishAt ? `vai ao ar sozinho ${whenLong(e.publishAt)}` : 'já está no canal'}</span>
+        {e.url ? <a href={e.url} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1.5 text-[0.85rem] font-medium text-amber hover:underline">Abrir <Icon name="external" size={14} /></a> : null}
+      </div>
+      {draft ? <div><CopyCaption text={caption} /></div> : null}
+      {e.warning ? <p className="text-[0.9rem] text-amber">{errorText(e.warning)}</p> : null}
+    </li>
+  );
+}
+
+function Progress({ job, onCancel, caption }: { job: ReturnType<typeof useJobFor>; onCancel: () => void; caption: string }) {
   const pr = job?.progress;
   const pct = pr ? Math.floor((100 * pr.sent) / Math.max(1, pr.total)) : 0;
-  const done = job?.events.find(e => e.type === 'publish:done');
-  const failed = job?.events.find(e => e.type === 'publish:failed') ?? (job?.status === 'failed' ? { error: job.error } : null);
-  const entry = done?.entry as { url?: string; status?: string; publishAt?: string; warning?: string } | undefined;
+  const dones = (job?.events ?? []).filter(e => e.type === 'publish:done').map(e => ({ platform: String(e.platform ?? ''), ...(e.entry as DoneEntry) }));
+  const fails = (job?.events ?? []).filter(e => e.type === 'publish:failed');
+  const jobFail = job?.status === 'failed' ? job.error : null;
   const lines = job?.events.filter(e => e.type === 'publish:log').slice(-3).map(e => String(e.message)) ?? [];
+  const running = job?.status === 'running';
 
-  if (done && entry) return (
-    <div className="grid gap-5 border border-rule bg-flap-2 p-8" aria-live="polite">
-      <Flap text={entry.status === 'scheduled' ? 'Agendado' : entry.status === 'public' ? 'No ar' : 'Enviado'} size="lg" tone={entry.status === 'scheduled' ? 'amber' : 'ink'} intro />
-      <p className="text-[1.05rem] text-ink-2">{entry.publishAt ? `Vai ao ar sozinho ${whenLong(entry.publishAt)}. Pode desligar o computador.` : 'O vídeo já está no canal.'}</p>
-      {entry.warning ? <p className="border border-amber/50 px-4 py-3 text-amber">{errorText(entry.warning)}</p> : null}
-      {entry.url ? <div><a href={entry.url} target="_blank" rel="noreferrer"><Button kind="frame" icon="external">Abrir no YouTube</Button></a></div> : null}
-    </div>
-  );
-  if (failed) return (
-    <div className="grid gap-5 border border-[#5a2422] bg-[#140b0b] p-8" aria-live="polite">
-      <Flap text="Falhou" size="lg" tone="red" />
-      <p className="text-[1.05rem] text-ink-2">{errorText(String((failed as { error?: unknown }).error ?? ''))}</p>
+  if (!running && (dones.length || fails.length || jobFail)) return (
+    <div className={`grid gap-5 rounded-lg border p-8 ${dones.length ? 'border-rule bg-flap-2' : 'border-[#5a2422] bg-[#140b0b]'}`} aria-live="polite">
+      <Flap text={dones.length ? (fails.length ? 'Parte enviada' : 'Pronto') : 'Falhou'} size="lg" tone={dones.length ? 'ink' : 'red'} intro />
+      {dones.length ? <ul className="grid gap-2">{dones.map((e, i) => <DoneLine key={i} e={e} caption={caption} />)}</ul> : null}
+      {fails.map((f, i) => <p key={i} className="flex items-center gap-2 text-[0.95rem] text-red"><PlatformIcon id={String(f.platform ?? '')} size={15} /> {errorText(String(f.error ?? ''))}</p>)}
+      {jobFail && !fails.length ? <p className="text-[1.05rem] text-ink-2">{errorText(jobFail)}</p> : null}
     </div>
   );
   return (
@@ -474,6 +498,7 @@ function Progress({ job, onCancel }: { job: ReturnType<typeof useJobFor>; onCanc
       <div className="relative h-2 bg-flap" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Envio">
         <span className="absolute inset-y-0 left-0 bg-amber transition-[width] duration-500 ease-out" style={{ width: `${pct}%` }} />
       </div>
+      {dones.length ? <ul className="grid gap-2">{dones.map((e, i) => <DoneLine key={i} e={e} caption={caption} />)}</ul> : null}
       {lines.length ? <ul className="grid gap-1 font-cond text-[0.92rem] text-ink-3">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul> : null}
       <p className="text-[0.95rem] text-ink-3">Se a internet cair, o envio continua de onde parou na próxima vez.</p>
       <div><Button kind="quiet" icon="stop" onClick={onCancel}>Parar envio</Button></div>
