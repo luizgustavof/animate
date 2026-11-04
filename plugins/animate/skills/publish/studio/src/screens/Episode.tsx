@@ -487,8 +487,8 @@ function Progress({ job, slug, platforms, onCancel, caption }: { job: ReturnType
   const uploads = job?.uploads ?? {};
   const mine = [...new Set([...Object.values(uploads).filter(u => u.slug === slug).map(u => u.platform), ...platforms])];
   // the whole departure: each platform counts the same; processing counts as sent
-  const pct = mine.length ? Math.floor(mine.reduce((s, p) => { const u = uploads[`${slug}:${p}`]; return s + (!u ? 0 : u.phase === 'sending' ? u.sent / Math.max(1, u.total) : 1); }, 0) / mine.length * 100) : 0;
-  const nowUp = mine.map(p => uploads[`${slug}:${p}`]).find(u => u && (u.phase === 'sending' || u.phase === 'processing'));
+  const pct = mine.length ? Math.floor(mine.reduce((s, p) => { const u = uploads[`${slug}:${p}`]; return s + (!u ? 0 : u.phase === 'preparing' ? 0 : u.phase === 'sending' ? u.sent / Math.max(1, u.total) : 1); }, 0) / mine.length * 100) : 0;
+  const nowUp = mine.map(p => uploads[`${slug}:${p}`]).find(u => u && (u.phase === 'preparing' || u.phase === 'sending' || u.phase === 'processing'));
   const dones = (job?.events ?? []).filter(e => e.type === 'publish:done').map(e => ({ platform: String(e.platform ?? ''), ...(e.entry as DoneEntry) }));
   const fails = (job?.events ?? []).filter(e => e.type === 'publish:failed');
   const jobFail = job?.status === 'failed' ? job.error : null;

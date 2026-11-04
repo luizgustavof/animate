@@ -5,6 +5,7 @@
 //           { type: 'item', platform, key, ... }          what will be sent (file, video, time, warnings, errors, request)
 //           { type: 'already', platform, entry }          posted before (force to post again)
 //           { type: 'log', platform, message }            a line worth showing (channel, resume, retry)
+//           { type: 'preparing', platform, done }       making the light copy first (done 0..1)
 //           { type: 'progress', platform, sent, total, mbps }
 //           { type: 'done', platform, entry }             the state.json entry, with the link
 //           { type: 'failed', platform, error }
@@ -14,6 +15,7 @@ import {
   listPieces, loadChannels, channelFor, readJson, metaFile, loadState, saveState, videoFile, probe, lock,
 } from './store.mjs';
 import { PLATFORMS, platformState } from './platforms.mjs';
+import { ensureLight } from './encode.mjs';
 
 export class PublishError extends Error {}
 
@@ -116,7 +118,20 @@ export async function publish(p, opts = {}, emit = () => {}) {
       const prev = loadState(p).posts[key];
       if (prev?.id && !opts.force) { emit({ type: 'already', platform, key, entry: prev }); results.push({ platform, status: 'already', entry: prev }); continue; }
 
-      const file = videoFile(p, cfg.file || 'final');
+      // a platform with a light-copy recipe (TikTok) gets it made first; a failed encode falls back to the master
+      if (!opts.dryRun) {
+        try {
+          await ensureLight(p, platform, {
+            signal: opts.signal,
+            log: (message) => emit({ type: 'log', platform, message }),
+            onProgress: ({ done }) => emit({ type: 'preparing', platform, done }),
+          });
+        } catch (e) {
+          if (opts.signal?.aborted) throw e;
+          emit({ type: 'log', platform, message: `light copy failed, sending the master: ${e.message}` });
+        }
+      }
+      const file = videoFile(p, cfg.file || 'final', platform);
       const video = probe(file);
       let publishAt;
       try { publishAt = parseAt(opts.at, p.root, channelName, channel, platform); }

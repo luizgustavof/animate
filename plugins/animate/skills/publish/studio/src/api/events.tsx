@@ -23,7 +23,8 @@ export interface LiveJob {
 export interface Upload {
   slug: string;
   platform: string;
-  phase: 'sending' | 'processing' | 'done' | 'failed';
+  phase: 'preparing' | 'sending' | 'processing' | 'done' | 'failed';
+  prep?: number;                // 0..1 while the light copy is made (TikTok)
   sent: number;
   total: number;
   mbps: number;
@@ -40,7 +41,8 @@ function track(cur: LiveJob, ev: JobEvent): Record<string, Upload> | null {
   const was = cur.uploads[key];
   const base: Upload = was ?? { slug, platform, phase: 'sending', sent: 0, total: 0, mbps: 0, startedAt: ev.at };
   let next: Upload | null = null;
-  if (ev.type === 'publish:item') next = { ...base, phase: 'sending', startedAt: ev.at };
+  if (ev.type === 'publish:preparing') next = { ...base, phase: 'preparing', prep: Number(ev.done) || 0 };
+  else if (ev.type === 'publish:item') next = { ...base, phase: 'sending', startedAt: ev.at };
   else if (ev.type === 'publish:progress') {
     const sent = Number(ev.sent), total = Number(ev.total);
     next = { ...base, sent, total, mbps: Number(ev.mbps), phase: total && sent >= total ? 'processing' : 'sending' };

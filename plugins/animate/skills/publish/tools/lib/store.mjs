@@ -91,9 +91,10 @@ export const stateFile = p => path.join(p.dir, 'publish', 'state.json');
 export const loadState = p => readJson(stateFile(p), { posts: {} });
 export const saveState = (p, s) => writeJson(stateFile(p), s);
 
-// which render goes up: "final" is the master (best source: every platform re-encodes), "share" the light copy
-export function videoFile(p, choice = 'final') {
-  const order = choice === 'share' ? ['share.mp4', 'final.mp4'] : ['final.mp4', 'share.mp4'];
+// which render goes up: "final" is the master (best source: every platform re-encodes), "share" the light copy.
+// A copy made for one platform (renders/<platform>.mp4, e.g. tiktok.mp4: lighter, phone-friendly) wins for that platform.
+export function videoFile(p, choice = 'final', platform = null) {
+  const order = [...(platform ? [`${platform}.mp4`] : []), ...(choice === 'share' ? ['share.mp4', 'final.mp4'] : ['final.mp4', 'share.mp4'])];
   for (const n of order) {
     const f = path.join(p.dir, 'renders', n);
     if (fs.existsSync(f)) return f;

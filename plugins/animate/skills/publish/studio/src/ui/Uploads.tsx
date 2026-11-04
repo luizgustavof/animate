@@ -21,17 +21,19 @@ const PROCESSING: Record<string, string> = {
 
 export const UploadRow = memo(function UploadRow({ platform, u }: { platform: string; u: Upload | null }) {
   const name = PLATFORM_NAME[platform as keyof typeof PLATFORM_NAME] ?? platform;
-  const pct = !u ? 0 : u.phase === 'done' || u.phase === 'processing' ? 100 : Math.floor((100 * u.sent) / Math.max(1, u.total));
+  const pct = !u ? 0 : u.phase === 'done' || u.phase === 'processing' ? 100 : u.phase === 'preparing' ? Math.floor(100 * (u.prep ?? 0)) : Math.floor((100 * u.sent) / Math.max(1, u.total));
   const tone = !u ? 'bg-steel-3/40' : u.phase === 'failed' ? 'bg-red' : u.phase === 'done' ? 'bg-green' : 'bg-amber';
   const status = !u ? 'Na fila'
     : u.phase === 'failed' ? 'Falhou'
     : u.phase === 'done' ? 'Pronto'
     : u.phase === 'processing' ? 'Processando'
+    : u.phase === 'preparing' ? 'Preparando'
     : u.total ? `${pct}%` : 'Começando';
   const detail = !u ? 'espera a plataforma anterior terminar'
     : u.phase === 'failed' ? errorText(u.error ?? '')
     : u.phase === 'done' ? (u.entry?.status === 'draft' ? 'rascunho na caixa de entrada do TikTok' : u.entry?.status === 'scheduled' ? 'agendado' : 'enviado')
     : u.phase === 'processing' ? (PROCESSING[platform] ?? 'Processando…')
+    : u.phase === 'preparing' ? `deixando o vídeo leve para o ${name} · ${pct}% (só na primeira vez)`
     : u.total ? [`${mb(u.sent)} de ${mb(u.total)}`, u.mbps ? `${u.mbps.toFixed(1)} MB/s` : null, left(u)].filter(Boolean).join(' · ')
     : 'preparando o arquivo…';
   return (

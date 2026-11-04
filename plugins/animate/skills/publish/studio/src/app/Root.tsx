@@ -53,7 +53,7 @@ function Sending() {
     const out: Upload[] = [];
     for (const j of Object.values(jobs)) {
       if (j.status !== 'running' || (j.kind !== 'publish' && j.kind !== 'batch')) continue;
-      for (const u of Object.values(j.uploads)) if (u.phase === 'sending' || u.phase === 'processing') out.push(u);
+      for (const u of Object.values(j.uploads)) if (u.phase === 'preparing' || u.phase === 'sending' || u.phase === 'processing') out.push(u);
     }
     return out;
   }, [jobs]);
@@ -65,7 +65,7 @@ function Sending() {
           <div className="grid gap-2 rounded-md border border-amber/30 bg-amber/[0.06] p-2 lg:p-3">
             <span className="hidden text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-amber lg:block">Enviando</span>
             {live.map(u => {
-              const pct = u.phase === 'processing' ? 100 : Math.floor((100 * u.sent) / Math.max(1, u.total));
+              const pct = u.phase === 'processing' ? 100 : u.phase === 'preparing' ? Math.floor(100 * (u.prep ?? 0)) : Math.floor((100 * u.sent) / Math.max(1, u.total));
               const title = data?.pieces.find(p => p.slug === u.slug)?.title?.replace(/^.*?EP\d+:\s*/i, '') ?? '';
               return (
                 <NavLink key={`${u.slug}:${u.platform}`} to={`/ep/${encodeURIComponent(u.slug)}`} className="grid min-w-0 gap-1.5 rounded px-1 py-0.5 hover:bg-white/[0.04]"
