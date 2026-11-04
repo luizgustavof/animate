@@ -1,0 +1,47 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex"><link rel="stylesheet" href="/animate/style.css"><title>Legenda · Estúdio</title>
+<style>
+#cap{white-space:pre-wrap;background:color-mix(in srgb,var(--ink) 6%,transparent);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;color:var(--ink);font-size:1.05rem}
+.btn{display:block;width:100%;text-align:center;font:600 1.1rem/1 system-ui,sans-serif;padding:1.05rem;border-radius:10px;border:0;margin-top:.8rem;text-decoration:none;cursor:pointer}
+.primary{background:var(--accent);color:#141414}.quiet{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+ol{padding-left:1.2rem}
+</style></head>
+<body><main>
+<h1 id="t">Legenda do TikTok</h1>
+<p class="meta" id="m">Copie, abra o TikTok, toque no rascunho na caixa de entrada e cole.</p>
+<div id="cap"></div>
+<button class="btn primary" id="copy" type="button">Copiar legenda</button>
+<a class="btn quiet" id="open" href="https://www.tiktok.com/">Abrir o TikTok</a>
+<a class="btn quiet" id="video" hidden>Ver o vídeo</a>
+<ol class="meta" style="border:0;margin-top:1.5rem">
+<li>Toque em <b>Copiar legenda</b>.</li>
+<li>Toque em <b>Abrir o TikTok</b> e abra a notificação do rascunho (caixa de entrada, ou Perfil → Rascunhos).</li>
+<li>Cole a legenda e toque em <b>Postar</b>.</li>
+</ol>
+<script>
+// The caption travels in the part of the link after "#", which the browser never sends to any server (GitHub included):
+// this page only reads it and shows it. #c=<base64url UTF-8 caption>&v=<encoded post URL, optional>
+(function () {
+  var h = new URLSearchParams(location.hash.slice(1));
+  var cap = '';
+  try {
+    var b = (h.get('c') || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    var bin = atob(b), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    cap = new TextDecoder().decode(bytes);
+  } catch (e) { cap = ''; }
+  var el = document.getElementById('cap');
+  if (!cap) { document.getElementById('t').textContent = 'Sem legenda neste link'; el.hidden = true; document.getElementById('copy').hidden = true; return; }
+  el.textContent = cap;
+  var v = h.get('v');
+  if (v && /^https:\/\/(www\.)?tiktok\.com\//.test(v)) { var a = document.getElementById('video'); a.href = v; a.hidden = false; }
+  var btn = document.getElementById('copy');
+  btn.addEventListener('click', function () {
+    var done = function () { btn.textContent = 'Copiada ✓'; setTimeout(function () { btn.textContent = 'Copiar legenda'; }, 2000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cap).then(done, fallback); else fallback();
+    function fallback() { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); try { document.execCommand('copy'); done(); } catch (e) {} }
+  });
+})();
+</script>
+</main></body></html>
