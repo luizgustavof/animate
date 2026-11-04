@@ -140,7 +140,10 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 function serveStatic(req, res, pathname) {
   let file = path.join(DIST, decodeURIComponent(pathname));
   if (!file.startsWith(DIST)) return fail(res, 400, 'bad path');
-  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html');   // SPA routes
+  const missing = !fs.existsSync(file) || fs.statSync(file).isDirectory();
+  // a hashed chunk from an older build (tab opened before a rebuild): a real 404, never index.html under an immutable header
+  if (missing && pathname.startsWith('/assets/')) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); return res.end('stale asset'); }
+  if (missing) file = path.join(DIST, 'index.html');   // SPA routes
   if (!fs.existsSync(file)) { res.writeHead(503, { 'retry-after': '1', 'content-type': 'text/plain; charset=utf-8' }); return res.end('O Estúdio está sendo atualizado. Recarregue em um instante.'); }
   const ext = path.extname(file);
   const immutable = pathname.startsWith('/assets/');
