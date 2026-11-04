@@ -1,0 +1,22 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><link rel="stylesheet" href="/animate/style.css"><title>Voltando ao Estúdio…</title></head>
+<body><main><h1 id="t">Voltando ao Estúdio…</h1><p id="m">Um instante.</p></main>
+<script>
+// TikTok only accepts https redirects for this app, so it lands here. The Estúdio runs on this same computer and put its
+// local port at the start of `state` ("<port>.<random>"); this page hands code and state straight back to it. Nothing is
+// stored or sent anywhere else, and only 127.0.0.1 is ever a target.
+(function () {
+  var q = new URLSearchParams(location.search);
+  var state = q.get('state') || '';
+  var m = /^(\d{4,5})\./.exec(state);
+  var port = m ? Number(m[1]) : 0;
+  if (!port || port < 1024 || port > 65535) {
+    document.getElementById('t').textContent = 'Não deu para voltar ao Estúdio';
+    document.getElementById('m').textContent = 'Abra o Estúdio e clique em Conectar de novo.';
+    return;
+  }
+  var out = new URLSearchParams();
+  ['code', 'state', 'scopes', 'error', 'error_description'].forEach(function (k) { if (q.has(k)) out.set(k, q.get(k)); });
+  location.replace('http://127.0.0.1:' + port + '/callback/?' + out.toString());
+})();
+</script></body></html>
