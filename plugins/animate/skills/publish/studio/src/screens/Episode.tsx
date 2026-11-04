@@ -403,12 +403,13 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
             const can = p.state === 'ready' && !!p.connected && !done;
             const on = picked.includes(id);
             return (
-              <label key={id} className={`flap-row flex items-center gap-4 px-4 py-3 ${can ? 'cursor-pointer hover:brightness-125' : 'opacity-60'} ${on && can ? 'ring-1 ring-amber' : ''} has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-amber`}>
-                <input type="checkbox" className="sr-only" disabled={!can} checked={on && can} onChange={() => setPicked(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])} />
-                <span className={`grid size-5 place-items-center border ${on && can ? 'border-amber bg-amber text-amber-ink' : 'border-steel-3'}`}>{on && can ? <Icon name="check" size={14} /> : null}</span>
-                <PlatformIcon id={id} size={17} className={can ? 'text-ink' : 'text-ink-3/50'} />
+              <label key={id} className={`flap-row flex items-center gap-4 px-4 py-3 ${can ? 'cursor-pointer hover:brightness-125' : done ? '' : 'opacity-60'} ${on && can ? 'ring-1 ring-amber' : ''} has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-amber`}>
+                <input type="checkbox" className="sr-only" disabled={!can} checked={(on && can) || !!done} onChange={() => setPicked(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])} />
+                {/* already sent: ticked in green and locked, so the row reads as done, not as an empty choice */}
+                <span className={`grid size-5 place-items-center border ${done ? 'border-green bg-green text-amber-ink' : on && can ? 'border-amber bg-amber text-amber-ink' : 'border-steel-3'}`}>{done || (on && can) ? <Icon name="check" size={14} /> : null}</span>
+                <PlatformIcon id={id} size={17} className={can || done ? 'text-ink' : 'text-ink-3/50'} />
                 <span className="font-cond text-[1.05rem] font-semibold">{p.label}</span>
-                <span className="ml-auto font-cond text-[0.92rem] text-ink-3">
+                <span className={`ml-auto font-cond text-[0.92rem] ${done ? 'text-green' : 'text-ink-3'}`}>
                   {p.state !== 'ready' ? 'em breve' : done ? 'já enviado' : p.connected ? p.connected.title : <Link to="/canais" className="text-amber hover:underline">conectar em Canais</Link>}
                 </span>
               </label>
