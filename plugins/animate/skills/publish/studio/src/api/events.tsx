@@ -50,6 +50,22 @@ function apply(qc: QueryClient, ev: JobEvent) {
   }
 }
 
+// jobs the server is still running that this page never saw start (a reload, a second tab): add them from /api/state so
+// a sign-in or upload in progress shows as such. Jobs already known are left alone; the stream keeps them current.
+export function seedJobs(qc: QueryClient, jobs: Job[]) {
+  const known = qc.getQueryData<Record<string, LiveJob>>(JOBS) ?? {};
+  const missing = jobs.filter(j => j.status === 'running' && !known[j.id]);
+  if (!missing.length) return;
+  qc.setQueryData<Record<string, LiveJob>>(JOBS, (prev = {}) => {
+    const next = { ...prev };
+    for (const j of missing) if (!next[j.id]) next[j.id] = {
+      id: j.id, kind: j.kind, target: j.target, status: 'running', error: null, result: null, progress: null,
+      log: j.last?.type === 'log' ? [String(j.last.message)] : [], events: j.last ? [j.last] : [],
+    };
+    return next;
+  });
+}
+
 // connection state for the little "ao vivo" mark; a tiny external store so no context re-renders the tree
 let connected = false;
 const subs = new Set<() => void>();

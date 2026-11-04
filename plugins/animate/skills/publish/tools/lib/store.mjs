@@ -55,6 +55,20 @@ export function loadChannels(root) {
   return cfg.channels || {};
 }
 
+// pin a platform to the account the user just chose (a deliberate Conectar/Reconectar): the pin is what stops uploads to
+// any other account, so it follows that choice and nothing else
+export function repin(root, name, platform, id) {
+  const file = path.join(root, 'publish', 'channels.json');
+  const cfg = readJson(file, null);
+  const block = cfg?.channels?.[name]?.platforms?.[platform];
+  if (!block) return false;
+  const field = platform === 'tiktok' ? 'openId' : 'channelId';
+  if (block[field] === id) return false;
+  block[field] = id;
+  writeJson(file, cfg);
+  return true;
+}
+
 // the channel a piece goes to: --channel, else piece.json "channel", else the one whose "series" is the piece's series, else the
 // only channel (unless strict: "what's next" never guesses, so a test piece outside any series is never offered)
 export function channelFor(p, channels, name = p.piece.channel, { strict = false } = {}) {

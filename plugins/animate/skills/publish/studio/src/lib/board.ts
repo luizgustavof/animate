@@ -39,7 +39,7 @@ export function boardRows(pieces: PieceRow[], channels: Channel[], jobs: Record<
       const up = running.find(j => (j.kind === 'publish' && j.target === row.slug) || (j.kind === 'batch' && j.events.at(-1)?.slug === row.slug));
       const writing = running.some(j => j.kind === 'words' && j.target === row.slug);
       const scheduled = posts.filter(p => p.status === 'scheduled').map(p => p.publishAt!).sort()[0] ?? null;
-      const posted = posts.filter(p => p.status === 'public' || p.status === 'unlisted').map(p => p.postedAt!).sort().at(-1) ?? null;
+      const posted = posts.filter(p => p.status === 'public' || p.status === 'unlisted' || p.status === 'friends' || p.status === 'followers').map(p => p.postedAt!).sort().at(-1) ?? null;
       const privateOnly = posts.some(p => p.status === 'private') && !scheduled && !posted;
       const draftOnly = posts.some(p => p.status === 'draft') && !scheduled && !posted;
       let state: RowState;

@@ -6,7 +6,7 @@ export type PlatformState = 'ready' | 'planned' | 'unknown';
 export interface ChannelPlatform {
   label: string;
   state: PlatformState;
-  connected: { id: string; title: string } | null;
+  connected: { id: string; title: string; avatar?: string | null } | null;
   needs: Array<'google-key' | 'tiktok-app' | 'sign-in' | 'wrong-channel'>;
   privacy: string | null;
   madeForKids: boolean | null;
@@ -28,7 +28,18 @@ export interface Channel {
   platforms: Partial<Record<PlatformId, ChannelPlatform>>;
 }
 
-export type PostStatus = 'uploading' | 'scheduled' | 'public' | 'unlisted' | 'private' | 'draft';
+export type PostStatus = 'uploading' | 'scheduled' | 'public' | 'unlisted' | 'private' | 'draft' | 'friends' | 'followers';
+
+export interface TikTokCreator {
+  nickname: string | null;
+  username: string | null;
+  avatar: string | null;
+  privacy: string[];
+  commentOff: boolean;
+  duetOff: boolean;
+  stitchOff: boolean;
+  maxSeconds: number | null;
+}
 
 export interface Post {
   platform: PlatformId;

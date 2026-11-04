@@ -72,7 +72,24 @@ async function channelOf(token) {
   const j = await api(token, 'GET', `${API}/channels?part=snippet&mine=true`);
   const c = j.items?.[0];
   if (!c) throw new Error('this Google account has no YouTube channel');
-  return { id: c.id, title: c.snippet.title };
+  return { id: c.id, title: c.snippet.title, avatar: c.snippet.thumbnails?.default?.url || null };
+}
+
+// the channel's current name and picture (renamed on YouTube, a new avatar). Never opens a sign-in: on any failure it
+// returns null and the saved values stay. 1 quota unit.
+export async function profile(account) {
+  const saved = readJson(tokenFile(account, 'youtube'), null);
+  if (!saved?.refresh_token) return null;
+  try {
+    const c = client();
+    const j = await tokenRequest({ grant_type: 'refresh_token', refresh_token: saved.refresh_token, client_id: c.client_id, client_secret: c.client_secret });
+    const ch = await channelOf(j.access_token);
+    if (ch.id !== saved.channelId) return null;   // not ours to rewrite: the pin check reports it
+    if (ch.title !== saved.channelTitle || ch.avatar !== saved.avatar) {
+      writeJson(tokenFile(account, 'youtube'), { ...readJson(tokenFile(account, 'youtube'), saved), channelTitle: ch.title, avatar: ch.avatar }, { secret: true });
+    }
+    return ch;
+  } catch { return null; }
 }
 
 // a fresh access token from the saved refresh token (they last an hour; a long upload asks again). When the sign-in has
@@ -115,22 +132,22 @@ export function importClient(src) {
   fs.rmSync(src);
 }
 
-export async function auth(account) {
+export async function auth(account, { signal, onUrl } = {}) {
   const c = client();
   const { code, redirectUri, verifier } = await authorizeLoopback({
     authEndpoint: AUTH, clientId: c.client_id, scopes: SCOPES,
-    extra: { access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true' },
+    extra: { access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true' }, signal, onUrl,
   });
   const tok = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier, client_id: c.client_id, client_secret: c.client_secret });
   if (!tok.refresh_token) throw new Error('Google sent no refresh token: remove the app at https://myaccount.google.com/permissions and run auth again');
   const ch = await channelOf(tok.access_token);
-  writeJson(tokenFile(account, 'youtube'), { refresh_token: tok.refresh_token, scope: tok.scope, channelId: ch.id, channelTitle: ch.title, savedAt: new Date().toISOString() }, { secret: true });
+  writeJson(tokenFile(account, 'youtube'), { refresh_token: tok.refresh_token, scope: tok.scope, channelId: ch.id, channelTitle: ch.title, avatar: ch.avatar, savedAt: new Date().toISOString() }, { secret: true });
   return ch;
 }
 
 export function connected(account) {
   const t = readJson(tokenFile(account, 'youtube'), null);
-  return t && { id: t.channelId, title: t.channelTitle };
+  return t && { id: t.channelId, title: t.channelTitle, avatar: t.avatar || null };
 }
 
 const bytes = s => Buffer.byteLength(s, 'utf8');

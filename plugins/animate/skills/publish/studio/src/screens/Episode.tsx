@@ -5,7 +5,9 @@ import { Link, useParams } from 'react-router';
 import { AnimatePresence, m } from 'motion/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, media } from '../api/client';
-import { useCancel, useJobFor, useUnpublish, useNextSlot, usePiece, usePublish, useSaveMeta, useStudio, useWriteWords } from '../api/queries';
+import { TIKTOK_START, TikTokPost, tiktokBlock, useTikTokCreator, type TikTokChoices } from './TikTokPost';
+import { PhoneCaption } from '../ui/PhoneCaption';
+import { useRefreshDrafts, useCancel, useJobFor, useUnpublish, useNextSlot, usePiece, usePublish, useSaveMeta, useStudio, useWriteWords } from '../api/queries';
 import type { Channel, Checks, Meta, PieceDetail, PlatformId } from '../api/types';
 import { channelCode, codeOf } from '../lib/board';
 import { useSettled } from '../lib/hooks';
@@ -19,6 +21,8 @@ type Tab = 'texto' | 'partida';
 
 export function Episode() {
   const { slug = '' } = useParams();
+  const { mutate: checkDrafts } = useRefreshDrafts();
+  useEffect(() => { checkDrafts(); }, [checkDrafts, slug]);
   const piece = usePiece(slug);
   const studio = useStudio();
   const [tab, setTab] = useState<Tab>('texto');
@@ -317,7 +321,7 @@ function PostedItem({ slug, postKey, post: p, label, caption }: { slug: string; 
           ) : null}
         </span>
       </div>
-      {p.status === 'draft' ? <div><CopyCaption text={caption} /></div> : null}
+      {p.status === 'draft' ? <div className="grid gap-3"><div><CopyCaption text={caption} /></div><PhoneCaption caption={caption} /></div> : null}
       {p.warning ? <span className="text-[0.9rem] text-ink-3">{errorText(p.warning)}</span> : null}
       <AnimatePresence initial={false}>
         {asking || busy ? (
@@ -353,6 +357,10 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
   const [whenMode, setWhen] = useState<When>('next');
   const [chosen, setChosen] = useState('');
   const [testPrivate, setTestPrivate] = useState(false);
+  const [tt, setTt] = useState<TikTokChoices>(TIKTOK_START);
+  const ttOn = picked.includes('tiktok');
+  const ttInfo = useTikTokCreator(channel?.id ?? '', ttOn && tt.mode === 'direct' && !!channel);
+  const ttBlock = ttOn ? tiktokBlock(tt, ttInfo.data, null) : null;
 
   const at = whenMode === 'next' ? (slot.data?.[picked[0] ?? 'youtube'] ?? null) : whenMode === 'choose' && chosen ? new Date(chosen).toISOString() : null;
   const errors = Object.entries(piece.checks?.platforms ?? {}).flatMap(([id, c]) => picked.includes(id as PlatformId) ? (c?.issues ?? []).filter(i => i.level === 'error') : []);
@@ -374,7 +382,9 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
   const summary = picked.length
     ? `${picked.map(p => channel?.platforms[p]?.label).join(' e ')}${channel ? `, no canal ${channel.platforms[picked[0]!]?.connected?.title ?? channel.name}` : ''}, ${testPrivate ? 'como privado (teste)' : 'público'}, ${at ? whenLong(at) : 'agora'}.`
     : 'Escolha pelo menos um destino.';
-  const tiktokNote = picked.includes('tiktok') ? (picked.length > 1 ? ' O TikTok recebe como rascunho agora; você posta pelo app.' : ' Vai como rascunho para a caixa de entrada do TikTok; você posta pelo app.') : '';
+  const tiktokNote = !ttOn ? '' : tt.mode === 'direct'
+    ? ` O TikTok posta agora, direto no perfil${tt.privacy === 'SELF_ONLY' ? ', só para você' : ''}.`
+    : (picked.length > 1 ? ' O TikTok recebe como rascunho agora; você posta pelo app.' : ' Vai como rascunho para a caixa de entrada do TikTok; você posta pelo app.');
 
   return (
     <div className="grid gap-8">
@@ -427,14 +437,17 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
         </label>
       </fieldset>
 
+      {ttOn && channel ? <TikTokPost channel={channel.id} value={tt} onChange={setTt} seconds={null} /> : null}
+
       {errors.length ? <Findings issues={errors} /> : null}
       {publish.error ? <p className="border border-[#5a2422] bg-[#1d0f0f] px-4 py-3 text-red">{errorText(publish.error.message)}</p> : null}
 
       <div className="grid gap-4 border-t border-rule pt-6">
         <p className="text-[1.05rem] text-ink-2"><span className="text-ink">Vai para </span>{summary}{tiktokNote}</p>
         <div>
-          <Button kind="primary" size="lg" icon="arrow" disabled={!picked.length || errors.length > 0 || (whenMode === 'choose' && !chosen) || (whenMode === 'next' && !at)}
-            onClick={() => publish.mutate({ platforms: picked, at: whenMode === 'now' ? null : at, privacy: testPrivate ? 'private' : undefined })}>
+          <Button kind="primary" size="lg" icon="arrow" disabled={!picked.length || errors.length > 0 || !!ttBlock || (whenMode === 'choose' && !chosen) || (whenMode === 'next' && !at)}
+            title={ttBlock ?? undefined}
+            onClick={() => publish.mutate({ platforms: picked, at: whenMode === 'now' ? null : at, privacy: testPrivate ? 'private' : undefined, tiktok: ttOn ? tt : undefined })}>
             {whenMode === 'now' ? 'Publicar agora' : at ? `Agendar para ${when(at)}` : 'Agendar'}
           </Button>
         </div>
@@ -463,7 +476,7 @@ function DoneLine({ e, caption }: { e: DoneEntry; caption: string }) {
         <span className="text-[0.92rem] text-ink-2">{draft ? 'Abra o TikTok, toque na notificação da caixa de entrada, cole a legenda e poste.' : e.publishAt ? `vai ao ar sozinho ${whenLong(e.publishAt)}` : 'já está no canal'}</span>
         {e.url ? <a href={e.url} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1.5 text-[0.85rem] font-medium text-amber hover:underline">Abrir <Icon name="external" size={14} /></a> : null}
       </div>
-      {draft ? <div><CopyCaption text={caption} /></div> : null}
+      {draft ? <div className="grid gap-3"><div><CopyCaption text={caption} /></div><PhoneCaption caption={caption} /></div> : null}
       {e.warning ? <p className="text-[0.9rem] text-amber">{errorText(e.warning)}</p> : null}
     </li>
   );

@@ -33,9 +33,12 @@ export const get = (id) => (jobs.has(id) ? view(jobs.get(id)) : null);
 export const running = (kind, target) => [...jobs.values()].find(j => j.kind === kind && j.target === target && j.status === 'running');
 
 // fn({ signal, emit }) → result. emit(event) adds { job, kind, target } and goes to every subscriber.
-export function start(kind, target, fn) {
+// { replace: true } aborts a running job of the same kind and target instead of returning it (sign-ins: a closed page or a
+// reloaded studio leaves one waiting). Never used for uploads, where the running one must win.
+export function start(kind, target, fn, { replace = false } = {}) {
   const existing = running(kind, target);
-  if (existing) return view(existing);
+  if (existing && !replace) return view(existing);
+  if (existing) { existing.controller.abort(); existing.status = 'cancelled'; }
   const j = { id: crypto.randomUUID(), kind, target, status: 'running', events: [], controller: new AbortController(), startedAt: Date.now() };
   jobs.set(j.id, j);
   const emit = (e) => {

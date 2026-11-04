@@ -1,9 +1,9 @@
 // PARTIDAS: the departures board. Every rendered episode of every channel, ordered like a station board:
 // moving now, then by departure time, then waiting, then what already left. A row opens its episode.
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { AnimatePresence, m } from 'motion/react';
-import { useBatch, useBatchPlan, useJobs, useStudio } from '../api/queries';
+import { useBatch, useBatchPlan, useJobs, useRefreshDrafts, useStudio } from '../api/queries';
 import type { Channel } from '../api/types';
 import { boardRows, STATE_TONE, STATE_WORD, type BoardRow } from '../lib/board';
 import { PlatformIcon } from '../ui/PlatformIcon';
@@ -19,6 +19,8 @@ const shortTitle = (t: string) => t.split(' — ').at(-1) ?? t;
 
 export function Board() {
   const { data, isLoading, error } = useStudio();
+  const { mutate: checkDrafts } = useRefreshDrafts();
+  useEffect(() => { checkDrafts(); }, [checkDrafts]);
   const jobs = useJobs();
   const [params, setParams] = useSearchParams();       // ?canal=<id>, so the filter survives opening an episode and coming back
   const wanted = params.get('canal');

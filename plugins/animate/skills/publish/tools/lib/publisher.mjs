@@ -90,7 +90,7 @@ export function overview(root, { strict = false } = {}) {
 }
 
 // validate and (unless dryRun) upload one piece to its channel's platforms
-//   opts: { channel, platform, at, privacy, force, dryRun }
+//   opts: { channel, platform, at, privacy, force, dryRun, tiktok }   (tiktok: the per-post direct-post choices)
 export async function publish(p, opts = {}, emit = () => {}) {
   const channels = loadChannels(p.root);
   const [channelName, channel] = channelFor(p, channels, opts.channel);
@@ -121,7 +121,8 @@ export async function publish(p, opts = {}, emit = () => {}) {
       let publishAt;
       try { publishAt = parseAt(opts.at, p.root, channelName, channel, platform); }
       catch (e) { emit({ type: 'failed', platform, error: e.message }); results.push({ platform, status: 'failed', error: e.message }); continue; }
-      const v = mod.validate({ meta, cfg, channel, video, publishAt, privacy: opts.privacy });
+      const v = mod.validate({ meta, cfg, channel, video, publishAt, privacy: opts.privacy, tiktok: opts.tiktok });
+      if (v.request && video?.duration) v.request.duration = video.duration;
       emit({
         type: 'item', platform, key, account, connected: mod.connected(account), file: path.relative(p.root, file), video, publishAt,
         warnings: v.warnings, errors: v.errors, request: v.request,
@@ -189,6 +190,31 @@ export async function unpublish(p, { key }, emit = () => {}) {
 }
 
 // views / likes / comments for everything posted (all pieces, or the ones given), written into each state.json
+// TikTok drafts the creator has since posted in the app: mark them posted (with the link when TikTok gives one)
+export async function refreshDrafts(pieces) {
+  const byAccount = {};
+  for (const p of pieces) for (const [key, e] of Object.entries(loadState(p).posts)) {
+    if (e.platform === 'tiktok' && e.status === 'draft' && e.id && PLATFORMS.tiktok?.drafts) (byAccount[e.account] ||= []).push({ p, key, id: e.id });
+  }
+  let changed = 0;
+  for (const [account, items] of Object.entries(byAccount)) {
+    let got;
+    try { got = await PLATFORMS.tiktok.drafts(account, items.map(i => i.id)); } catch { continue; }
+    for (const it of items) {
+      const g = got[it.id];
+      if (!g || g.status !== 'PUBLISH_COMPLETE') continue;
+      const st = loadState(it.p);
+      const e = st.posts[it.key];
+      if (!e || e.status !== 'draft') continue;
+      e.status = 'public'; e.publishedAt = new Date().toISOString();
+      if (g.url) e.url = g.url;
+      saveState(it.p, st);
+      changed++;
+    }
+  }
+  return changed;
+}
+
 export async function refreshStats(pieces, emit = () => {}) {
   const byAccount = {};   // platform/account → [{ p, key, id }]
   for (const p of pieces) {

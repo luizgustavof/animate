@@ -11,10 +11,9 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  SECRETS, resolvePiece, listPieces, loadChannels, channelFor, readJson, writeJson, metaFile, loadState, videoFile, probe,
-} from './lib/store.mjs';
+  SECRETS, resolvePiece, listPieces, loadChannels, channelFor, readJson, writeJson, metaFile, loadState, videoFile, probe, repin } from './lib/store.mjs';
 import { PLATFORMS, LABELS, platformState } from './lib/platforms.mjs';
-import { overview, publish, unpublish, nextSlot, refreshStats } from './lib/publisher.mjs';
+import { overview, publish, unpublish, nextSlot, refreshStats, refreshDrafts } from './lib/publisher.mjs';
 import { connections, ensureGoogleKey } from './lib/setup.mjs';
 import * as jobs from './lib/jobs.mjs';
 import { write as writeWords } from './lib/writer.mjs';
@@ -223,7 +222,7 @@ route('POST', '/api/pieces/:slug/publish', async (req, res, { slug }) => {
   const p = pieceBySlug(slug);
   const b = await body(req);
   const job = jobs.start('publish', slug, async ({ signal, emit }) => {
-    const r = await publish(p, { platform: b.platforms, at: b.at || null, privacy: b.privacy || undefined, signal }, (e) => emit({ ...e, type: `publish:${e.type}` }));
+    const r = await publish(p, { platform: b.platforms, at: b.at || null, privacy: b.privacy || undefined, tiktok: b.tiktok || undefined, signal }, (e) => emit({ ...e, type: `publish:${e.type}` }));
     return r;
   });
   json(res, 202, job);
@@ -303,15 +302,28 @@ route('POST', '/api/channels/:name/connect/:platform', (req, res, { name, platfo
   if (!c?.platforms?.[platform]) return fail(res, 404, 'no such channel or platform');
   if (platformState(platform) !== 'ready') return fail(res, 400, `${LABELS[platform] || platform} is not built yet`);
   const account = c.platforms[platform].account || name;
-  const job = jobs.start('connect', `${name}/${platform}`, async ({ emit }) => {
+  const job = jobs.start('connect', `${name}/${platform}`, async ({ signal, emit }) => {
     if (platform === 'youtube' && !ensureGoogleKey()) throw new Error('NEEDS_GOOGLE_KEY');
     if (platform === 'tiktok' && !PLATFORMS.tiktok.hasApp()) throw new Error('NEEDS_TIKTOK_APP');
     emit({ type: 'log', message: platform === 'tiktok'
       ? 'Abrimos o login do TikTok no seu navegador. Entre na conta do canal e clique em Autorizar.'
       : 'Abrimos o login no seu navegador. Escolha a conta e o canal e clique em Permitir.' });
-    return PLATFORMS[platform].auth(account);
-  });
+    const who = await PLATFORMS[platform].auth(account, { signal, onUrl: (url) => emit({ type: 'signin-url', url }) });
+    const pinned = c.platforms[platform].channelId || c.platforms[platform].openId;
+    if (pinned && who?.id && pinned !== who.id && repin(ROOT, name, platform, who.id)) {
+      emit({ type: 'log', message: `Canal trocado: agora ${c.name || name} envia para ${who.title}.` });
+    }
+    return who;
+  }, { replace: true });   // a new click always starts a fresh sign-in
   json(res, 202, job);
+});
+
+// TikTok's rules for this account right now (who can see, interactions, max length): the post screen shows them fresh
+route('GET', '/api/channels/:name/tiktok/creator', async (req, res, { name }) => {
+  const c = loadChannels(ROOT)[name];
+  if (!c?.platforms?.tiktok) return fail(res, 404, 'no TikTok on this channel');
+  try { json(res, 200, await PLATFORMS.tiktok.creatorInfo(c.platforms.tiktok.account || name)); }
+  catch (e) { fail(res, 400, e.message); }
 });
 
 // the user's own TikTok developer app: they paste Client key + Client secret once. Write-only: nothing about it is ever
@@ -330,6 +342,41 @@ route('GET', '/api/stats', (req, res) => {
   }
   json(res, 200, rows);
 });
+// TikTok drafts posted in the app since the last look (at most once a minute; the board and the episode ask on open)
+let draftsAt = 0, draftsRun = null;
+route('POST', '/api/tiktok/drafts/refresh', async (req, res) => {
+  if (!draftsRun && Date.now() - draftsAt > 60e3) {
+    draftsAt = Date.now();
+    draftsRun = refreshDrafts(listPieces(ROOT)).catch(() => 0).finally(() => { draftsRun = null; });
+    return json(res, 200, { changed: await draftsRun });
+  }
+  json(res, 200, { changed: 0, skipped: true });
+});
+
+// names and pictures change on the platforms (a renamed channel): the Canais screen asks for a refresh when it opens.
+// At most once every 5 minutes; never opens a sign-in; a failure keeps the saved values.
+let profilesAt = 0, profilesRun = null;
+route('POST', '/api/profiles/refresh', async (req, res) => {
+  if (!profilesRun && Date.now() - profilesAt > 5 * 60e3) {
+    profilesAt = Date.now();
+    profilesRun = (async () => {
+      let changed = 0;
+      for (const [name, c] of Object.entries(loadChannels(ROOT))) for (const [platform, cfg] of Object.entries(c.platforms || {})) {
+        const mod = PLATFORMS[platform];
+        if (!mod?.profile || platformState(platform) !== 'ready') continue;
+        const account = cfg.account || name;
+        const before = mod.connected(account);
+        if (!before) continue;
+        const now = await mod.profile(account);
+        if (now && (now.title !== before.title || now.avatar !== before.avatar)) changed++;
+      }
+      return changed;
+    })().finally(() => { profilesRun = null; });
+    try { return json(res, 200, { changed: await profilesRun }); } catch { return json(res, 200, { changed: 0 }); }
+  }
+  json(res, 200, { changed: 0, skipped: true });
+});
+
 route('POST', '/api/stats/refresh', (req, res) => {
   const job = jobs.start('stats', 'all', async ({ emit }) => refreshStats(listPieces(ROOT), (e) => emit({ type: 'log', message: e.error })));
   json(res, 202, job);

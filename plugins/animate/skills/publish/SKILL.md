@@ -105,8 +105,11 @@ Step by step, with the traps we already hit: [docs/connect-youtube.md](docs/conn
 [docs/connect-tiktok.md](docs/connect-tiktok.md), [docs/connect-instagram.md](docs/connect-instagram.md). The user does the clicks that
 touch their account or a secret (signing in, Allow, downloading a key, pasting the TikTok Client secret into the studio form);
 never read a client secret off a page or ask for it in chat.
-**TikTok** works in draft mode: the video lands in the creator's TikTok inbox and they press Post in the app (paste the
-caption from the studio's Copy button). No scheduling through the API; `--at` only warns. One-time setup is the user's own
+**TikTok** posts as a draft by default: the video lands in the creator's TikTok inbox and they press Post in the app (paste
+the caption from the studio's Copy button). **Direct posting** (caption included, straight to the profile) is in the studio's
+Partida tab as "Postar direto": the user picks who can see it and the interactions on each post (TikTok's rules: never
+preselect, never guess the commercial-content or AI-generated answers). Until TikTok audits the app it only works with the
+account set to private (`docs/tiktok-review.md`). No scheduling through the API; `--at` only warns. One-time setup is the user's own
 developer app in sandbox (studio: Canais → TikTok shows the five steps); then `auth <channel> tiktok` or Conectar.
 More channels: add a block in `channels.json` (or the studio's "Novo canal") and sign each in. Several channels on one Google
 account each get their own `account` name and their own sign-in.

@@ -1,6 +1,6 @@
 // The one door to tools/studio.mjs. The token comes in the opening URL once (?t=…), is kept in localStorage and
 // removed from the address bar, then rides every request as a header (media URLs carry it as ?t= because <video> can't set headers).
-import type { BatchItem, Checks, Job, Meta, PieceDetail, StatRow, StudioState } from './types';
+import type { BatchItem, Checks, Job, Meta, PieceDetail, StatRow, StudioState, TikTokCreator } from './types';
 
 const KEY = 'studio-token';   // localStorage: the server keeps one token per computer, so it survives restarts
 
@@ -47,8 +47,11 @@ export const api = {
   saveMeta: (slug: string, meta: Meta) => call<{ meta: Meta; checks: Checks }>('PUT', `/api/pieces/${encodeURIComponent(slug)}/meta`, { meta }),
   writeWords: (slug: string) => call<Job>('POST', `/api/pieces/${encodeURIComponent(slug)}/words`, {}),
   unpublish: (slug: string, key: string) => call<Job>('POST', `/api/pieces/${encodeURIComponent(slug)}/unpublish`, { key, confirm: slug }),
-  publish: (slug: string, opts: { platforms: string[]; at: string | null; privacy?: string }) =>
+  publish: (slug: string, opts: { platforms: string[]; at: string | null; privacy?: string; tiktok?: unknown }) =>
     call<Job>('POST', `/api/pieces/${encodeURIComponent(slug)}/publish`, opts),
+  tiktokCreator: (channel: string, signal?: AbortSignal) => call<TikTokCreator>('GET', `/api/channels/${encodeURIComponent(channel)}/tiktok/creator`, undefined, signal),
+  refreshDrafts: () => call<{ changed: number; skipped?: boolean }>('POST', '/api/tiktok/drafts/refresh', {}),
+  refreshProfiles: () => call<{ changed: number; skipped?: boolean }>('POST', '/api/profiles/refresh', {}),
   cancel: (id: string) => call<{ cancelled: boolean }>('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`, {}),
   nextSlot: (channel: string, signal?: AbortSignal) => call<Record<string, string | null>>('GET', `/api/channels/${encodeURIComponent(channel)}/next-slot`, undefined, signal),
   saveTikTokApp: (clientKey: string, clientSecret: string) => call<{ ok: true }>('PUT', '/api/platforms/tiktok/app', { clientKey, clientSecret }),

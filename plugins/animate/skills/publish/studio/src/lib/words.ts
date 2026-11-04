@@ -95,6 +95,15 @@ export function errorText(msg: string | null | undefined): string {
   if (/locked this upload private|not passed the YouTube API audit/i.test(msg)) return 'O YouTube deixou o vídeo privado porque o app ainda não passou pela auditoria. Torne público no YouTube Studio.';
   if (/quotaExceeded/.test(msg)) return 'A cota diária da API do YouTube acabou. Ela volta à meia-noite do horário do Pacífico (umas 5h aqui).';
   if (/sign-in expired|invalid_grant/i.test(msg)) return 'O login do YouTube venceu. Conecte de novo em Canais.';
+  if (/spam_risk_too_many_pending_share/.test(msg)) return 'O TikTok já tem 5 rascunhos esperando na sua caixa de entrada. Poste ou apague alguns no app e envie este de novo.';
+  if (/^NEEDS_TIKTOK_PUBLISH/.test(msg)) return 'Para postar direto, ligue o Direct Post no app de desenvolvedor do TikTok e clique em Reconectar no TikTok (em Canais).';
+  if (/unaudited_client_can_only_post_to_private_accounts/.test(msg)) return 'Até o TikTok aprovar o app, postar direto só funciona com a conta do TikTok em modo privado. Deixe a conta privada nas configurações do app ou envie como rascunho.';
+  if (/privacy_level_option_mismatch/.test(msg)) return 'O TikTok não aceita essa opção de quem pode ver para esta conta agora. Escolha outra.';
+  if (/reached_active_user_cap/.test(msg)) return 'O app do TikTok chegou ao limite de contas postando hoje. Tente amanhã.';
+  if (/^TIKTOK_TOO_LONG/.test(msg)) return 'O vídeo é mais longo do que esta conta do TikTok pode postar.';
+  if (/^SIGNIN_TIMEOUT/.test(msg)) return 'O login não voltou em 5 minutos. Clique em Conectar de novo e, na página que abrir, clique em Autorizar.';
+  if (/sign-in failed: access_denied/.test(msg)) return 'O login foi recusado na página. Clique em Conectar de novo e aceite as permissões.';
+  if (/sign-in failed/.test(msg)) return `O login não deu certo: ${msg.replace(/^.*sign-in failed:\s*/, '')}. Clique em Conectar de novo.`;
   if (/cancelled/.test(msg)) return 'Cancelado. Se publicar de novo, o envio continua de onde parou.';
   if (/kept failing|connection/i.test(msg)) return 'A conexão caiu várias vezes. Publique de novo: o envio continua de onde parou.';
   if (/wrong channel|refusing to upload/i.test(msg)) return 'O login é de outro canal. Nada foi enviado. Conecte o canal certo em Canais.';
