@@ -15,7 +15,38 @@ export interface LiveJob {
   result: unknown;
   log: string[];                // the human lines, newest last (bounded)
   progress: { sent: number; total: number; mbps: number } | null;
+  uploads: Record<string, Upload>;   // "<slug>:<platform>" → where that upload stands (one job can send several)
   events: JobEvent[];           // non-progress events, bounded
+}
+
+// one platform's upload inside a publish (or batch) job
+export interface Upload {
+  slug: string;
+  platform: string;
+  phase: 'sending' | 'processing' | 'done' | 'failed';
+  sent: number;
+  total: number;
+  mbps: number;
+  startedAt: number;
+  error?: string;
+  entry?: Record<string, unknown>;
+}
+
+function track(cur: LiveJob, ev: JobEvent): Record<string, Upload> | null {
+  const platform = typeof ev.platform === 'string' ? ev.platform : null;
+  if (!platform || !String(ev.type).startsWith('publish:')) return null;
+  const slug = typeof ev.slug === 'string' ? ev.slug : cur.target;
+  const key = `${slug}:${platform}`;
+  const was = cur.uploads[key];
+  const base: Upload = was ?? { slug, platform, phase: 'sending', sent: 0, total: 0, mbps: 0, startedAt: ev.at };
+  let next: Upload | null = null;
+  if (ev.type === 'publish:item') next = { ...base, phase: 'sending', startedAt: ev.at };
+  else if (ev.type === 'publish:progress') {
+    const sent = Number(ev.sent), total = Number(ev.total);
+    next = { ...base, sent, total, mbps: Number(ev.mbps), phase: total && sent >= total ? 'processing' : 'sending' };
+  } else if (ev.type === 'publish:done') next = { ...base, phase: 'done', sent: base.total || base.sent, entry: (ev.entry as Record<string, unknown>) ?? undefined };
+  else if (ev.type === 'publish:failed') next = { ...base, phase: 'failed', error: String(ev.error ?? '') };
+  return next ? { ...cur.uploads, [key]: next } : null;
 }
 
 const MAX = 60;
@@ -24,9 +55,11 @@ const JOBS = ['jobs'] as const;
 function apply(qc: QueryClient, ev: JobEvent) {
   qc.setQueryData<Record<string, LiveJob>>(JOBS, (prev = {}) => {
     const cur: LiveJob = prev[ev.job] ?? {
-      id: ev.job, kind: ev.kind, target: ev.target, status: 'running', error: null, result: null, log: [], progress: null, events: [],
+      id: ev.job, kind: ev.kind, target: ev.target, status: 'running', error: null, result: null, log: [], progress: null, uploads: {}, events: [],
     };
     const next: LiveJob = { ...cur };
+    const up = track(cur, ev);
+    if (up) next.uploads = up;
     if (ev.type === 'publish:progress') {
       next.progress = { sent: Number(ev.sent), total: Number(ev.total), mbps: Number(ev.mbps) };
     } else {
@@ -59,7 +92,7 @@ export function seedJobs(qc: QueryClient, jobs: Job[]) {
   qc.setQueryData<Record<string, LiveJob>>(JOBS, (prev = {}) => {
     const next = { ...prev };
     for (const j of missing) if (!next[j.id]) next[j.id] = {
-      id: j.id, kind: j.kind, target: j.target, status: 'running', error: null, result: null, progress: null,
+      id: j.id, kind: j.kind, target: j.target, status: 'running', error: null, result: null, progress: null, uploads: {},
       log: j.last?.type === 'log' ? [String(j.last.message)] : [], events: j.last ? [j.last] : [],
     };
     return next;

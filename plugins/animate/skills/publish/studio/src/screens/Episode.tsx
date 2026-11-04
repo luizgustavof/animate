@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api, media } from '../api/client';
 import { TIKTOK_START, TikTokPost, tiktokBlock, useTikTokCreator, type TikTokChoices } from './TikTokPost';
 import { PhoneCaption } from '../ui/PhoneCaption';
+import { UploadBars } from '../ui/Uploads';
 import { useRefreshDrafts, useCancel, useJobFor, useUnpublish, useNextSlot, usePiece, usePublish, useSaveMeta, useStudio, useWriteWords } from '../api/queries';
 import type { Channel, Checks, Meta, PieceDetail, PlatformId } from '../api/types';
 import { channelCode, codeOf } from '../lib/board';
@@ -376,7 +377,7 @@ function Departure({ piece, channel, onEdit }: { piece: PieceDetail; channel: Ch
   );
 
   if (running || (job && job.status !== 'running' && job.events.some(e => e.type === 'publish:done' || e.type === 'publish:failed'))) {
-    return <Progress job={job} onCancel={() => job && cancel.mutate(job.id)} caption={piece.meta?.tiktok?.caption ?? ''} />;
+    return <Progress job={job} slug={piece.slug} platforms={picked} onCancel={() => job && cancel.mutate(job.id)} caption={piece.meta?.tiktok?.caption ?? ''} />;
   }
 
   const summary = picked.length
@@ -482,9 +483,12 @@ function DoneLine({ e, caption }: { e: DoneEntry; caption: string }) {
   );
 }
 
-function Progress({ job, onCancel, caption }: { job: ReturnType<typeof useJobFor>; onCancel: () => void; caption: string }) {
-  const pr = job?.progress;
-  const pct = pr ? Math.floor((100 * pr.sent) / Math.max(1, pr.total)) : 0;
+function Progress({ job, slug, platforms, onCancel, caption }: { job: ReturnType<typeof useJobFor>; slug: string; platforms: string[]; onCancel: () => void; caption: string }) {
+  const uploads = job?.uploads ?? {};
+  const mine = [...new Set([...Object.values(uploads).filter(u => u.slug === slug).map(u => u.platform), ...platforms])];
+  // the whole departure: each platform counts the same; processing counts as sent
+  const pct = mine.length ? Math.floor(mine.reduce((s, p) => { const u = uploads[`${slug}:${p}`]; return s + (!u ? 0 : u.phase === 'sending' ? u.sent / Math.max(1, u.total) : 1); }, 0) / mine.length * 100) : 0;
+  const nowUp = mine.map(p => uploads[`${slug}:${p}`]).find(u => u && (u.phase === 'sending' || u.phase === 'processing'));
   const dones = (job?.events ?? []).filter(e => e.type === 'publish:done').map(e => ({ platform: String(e.platform ?? ''), ...(e.entry as DoneEntry) }));
   const fails = (job?.events ?? []).filter(e => e.type === 'publish:failed');
   const jobFail = job?.status === 'failed' ? job.error : null;
@@ -505,12 +509,10 @@ function Progress({ job, onCancel, caption }: { job: ReturnType<typeof useJobFor
         <Flap text={`${String(pct).padStart(3, ' ')}%`} size="xl" tone="amber" label={`${pct} por cento enviado`} />
         <div className="grid gap-1">
           <span className="flex items-center gap-2 caps text-amber"><Lamp tone="amber" blink /> Enviando</span>
-          {pr ? <span className="font-cond text-[1rem] text-ink-3">{mb(pr.sent)} de {mb(pr.total)} · {pr.mbps.toFixed(1)} MB/s</span> : <span className="font-cond text-ink-3">Preparando o envio…</span>}
+          <span className="font-cond text-[1rem] text-ink-3">{nowUp ? `agora: ${nowUp.platform === 'tiktok' ? 'TikTok' : nowUp.platform === 'youtube' ? 'YouTube' : nowUp.platform}` : 'Preparando o envio…'} · {mine.length} destino{mine.length === 1 ? '' : 's'}</span>
         </div>
       </div>
-      <div className="relative h-2 bg-flap" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Envio">
-        <span className="absolute inset-y-0 left-0 bg-amber transition-[width] duration-500 ease-out" style={{ width: `${pct}%` }} />
-      </div>
+      <UploadBars slug={slug} platforms={mine} uploads={uploads} />
       {dones.length ? <ul className="grid gap-2">{dones.map((e, i) => <DoneLine key={i} e={e} caption={caption} />)}</ul> : null}
       {lines.length ? <ul className="grid gap-1 font-cond text-[0.92rem] text-ink-3">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul> : null}
       <p className="text-[0.95rem] text-ink-3">Se a internet cair, o envio continua de onde parou na próxima vez.</p>

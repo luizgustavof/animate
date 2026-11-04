@@ -97,7 +97,7 @@ export async function auth(account, { signal, onUrl } = {}) {
   const a = app();
   const { code, redirectUri, verifier } = await authorizeLoopback({
     authEndpoint: AUTH, clientId: a.client_key, scopes: SCOPES,
-    clientParam: 'client_key', scopeSep: ',', challengeEncoding: 'hex', callbackPath: '/callback/', relay: a.redirect || RELAY, signal, onUrl,
+    clientParam: 'client_key', scopeSep: ',', challengeEncoding: 'hex', callbackPath: '/callback/', extra: { disable_auto_auth: '1' }, relay: a.redirect || RELAY, signal, onUrl,
   });
   const tok = await tokenRequest({ client_key: a.client_key, client_secret: a.client_secret, code, grant_type: 'authorization_code', redirect_uri: redirectUri, code_verifier: verifier });
   const granted = String(tok.scope || '').split(',').map(x => x.trim());

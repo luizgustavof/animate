@@ -8,6 +8,8 @@ import { LiveEvents } from '../api/events';
 import { useJobs, useStats, useStudio } from '../api/queries';
 import { boardRows, codeOf } from '../lib/board';
 import { count } from '../lib/words';
+import { PlatformIcon } from '../ui/PlatformIcon';
+import type { Upload } from '../api/events';
 
 const loadFeatures = () => import('./motion-features').then(r => r.default);
 
@@ -41,6 +43,50 @@ function useKeys(inEpisode: boolean) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate, inEpisode]);
+}
+
+// what is leaving right now, on every screen: one line per upload in progress, a click opens its episode
+function Sending() {
+  const jobs = useJobs();
+  const { data } = useStudio();
+  const live = useMemo(() => {
+    const out: Upload[] = [];
+    for (const j of Object.values(jobs)) {
+      if (j.status !== 'running' || (j.kind !== 'publish' && j.kind !== 'batch')) continue;
+      for (const u of Object.values(j.uploads)) if (u.phase === 'sending' || u.phase === 'processing') out.push(u);
+    }
+    return out;
+  }, [jobs]);
+  return (
+    <AnimatePresence initial={false}>
+      {live.length ? (
+        <m.div key="sending" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }} className="overflow-hidden" aria-live="polite">
+          <div className="grid gap-2 rounded-md border border-amber/30 bg-amber/[0.06] p-2 lg:p-3">
+            <span className="hidden text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-amber lg:block">Enviando</span>
+            {live.map(u => {
+              const pct = u.phase === 'processing' ? 100 : Math.floor((100 * u.sent) / Math.max(1, u.total));
+              const title = data?.pieces.find(p => p.slug === u.slug)?.title?.replace(/^.*?EP\d+:\s*/i, '') ?? '';
+              return (
+                <NavLink key={`${u.slug}:${u.platform}`} to={`/ep/${encodeURIComponent(u.slug)}`} className="grid min-w-0 gap-1.5 rounded px-1 py-0.5 hover:bg-white/[0.04]"
+                  title={`${codeOf(u.slug)} ${title}: ${u.phase === 'processing' ? 'processando' : `${pct}%`}`}>
+                  <span className="flex min-w-0 items-center justify-center gap-2 lg:justify-start">
+                    <PlatformIcon id={u.platform} size={14} className="shrink-0 text-ink" />
+                    <span className="text-[0.75rem] font-semibold tabular-nums text-amber">{codeOf(u.slug)}</span>
+                    <span className="hidden min-w-0 flex-1 truncate text-[0.8rem] text-ink-2 lg:block">{title}</span>
+                    <span className="hidden shrink-0 text-[0.78rem] font-semibold tabular-nums text-ink lg:block">{u.phase === 'processing' ? '…' : `${pct}%`}</span>
+                  </span>
+                  <span className="relative h-1 overflow-hidden rounded-full bg-flap" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Envio de ${codeOf(u.slug)}`}>
+                    <span className={`absolute inset-y-0 left-0 rounded-full bg-amber transition-[width] duration-500 ease-out ${u.phase === 'processing' ? 'animate-pulse' : ''}`} style={{ width: `${pct}%` }} />
+                  </span>
+                </NavLink>
+              );
+            })}
+          </div>
+        </m.div>
+      ) : null}
+    </AnimatePresence>
+  );
 }
 
 // one line per board saying what's on it right now
@@ -117,6 +163,7 @@ export function Root() {
                 );
               })}
             </nav>
+            <Sending />
             <p className="mt-auto hidden px-3 text-[0.75rem] leading-relaxed text-ink-3 lg:block">
               Teclas 1, 2 e 3 trocam a tela.<br />Esc sai do episódio.
             </p>

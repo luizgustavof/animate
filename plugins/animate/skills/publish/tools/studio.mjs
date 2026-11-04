@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   SECRETS, resolvePiece, listPieces, loadChannels, channelFor, readJson, writeJson, metaFile, loadState, videoFile, probe, repin } from './lib/store.mjs';
 import { PLATFORMS, LABELS, platformState } from './lib/platforms.mjs';
-import { overview, publish, unpublish, nextSlot, refreshStats, refreshDrafts } from './lib/publisher.mjs';
+import { overview, publish, unpublish, nextSlot, refreshStats, refreshDrafts, settleScheduled } from './lib/publisher.mjs';
 import { connections, ensureGoogleKey } from './lib/setup.mjs';
 import * as jobs from './lib/jobs.mjs';
 import { write as writeWords } from './lib/writer.mjs';
@@ -342,9 +342,26 @@ route('GET', '/api/stats', (req, res) => {
   }
   json(res, 200, rows);
 });
+// --demo: a pretend upload (no platform, no file) so the progress UI can be checked: YouTube then TikTok, ~25 s
+if (argv.includes('--demo')) route('POST', '/api/demo/upload/:slug', (req, res, { slug }) => {
+  const job = jobs.start('publish', slug, async ({ signal, emit }) => {
+    const wait = (ms) => new Promise((ok, no) => { const t = setTimeout(ok, ms); signal.addEventListener('abort', () => { clearTimeout(t); no(new Error('cancelled')); }, { once: true }); });
+    for (const [platform, total, steps] of [['youtube', 466 * 2 ** 20, 24], ['tiktok', 466 * 2 ** 20, 16]]) {
+      emit({ type: 'publish:item', platform });
+      for (let i = 1; i <= steps; i++) { await wait(450); emit({ type: 'publish:progress', platform, sent: Math.round(total * i / steps), total, mbps: 11 + Math.random() * 4 }); }
+      await wait(platform === 'tiktok' ? 4000 : 1500);
+      emit({ type: 'publish:done', platform, entry: platform === 'tiktok' ? { status: 'draft' } : { status: 'scheduled', publishAt: new Date(Date.now() + 864e5).toISOString() } });
+    }
+    return { demo: true };
+  });
+  json(res, 202, job);
+});
+
 // TikTok drafts posted in the app since the last look (at most once a minute; the board and the episode ask on open)
 let draftsAt = 0, draftsRun = null;
 route('POST', '/api/tiktok/drafts/refresh', async (req, res) => {
+  const settled = settleScheduled(listPieces(ROOT));
+  if (settled) return json(res, 200, { changed: settled });
   if (!draftsRun && Date.now() - draftsAt > 60e3) {
     draftsAt = Date.now();
     draftsRun = refreshDrafts(listPieces(ROOT)).catch(() => 0).finally(() => { draftsRun = null; });

@@ -191,6 +191,22 @@ export async function unpublish(p, { key }, emit = () => {}) {
 
 // views / likes / comments for everything posted (all pieces, or the ones given), written into each state.json
 // TikTok drafts the creator has since posted in the app: mark them posted (with the link when TikTok gives one)
+// a scheduled post goes live on its own at publishAt (YouTube flips it to public): mark it so once the time has passed.
+// No API call; the stats refresh still reads the real numbers later.
+export function settleScheduled(pieces, now = Date.now()) {
+  let changed = 0;
+  for (const p of pieces) {
+    const st = loadState(p);
+    let dirty = false;
+    for (const e of Object.values(st.posts)) {
+      if (e.status !== 'scheduled' || !e.publishAt || Date.parse(e.publishAt) > now) continue;
+      e.status = 'public'; e.publishedAt = e.publishAt; dirty = true; changed++;
+    }
+    if (dirty) saveState(p, st);
+  }
+  return changed;
+}
+
 export async function refreshDrafts(pieces) {
   const byAccount = {};
   for (const p of pieces) for (const [key, e] of Object.entries(loadState(p).posts)) {

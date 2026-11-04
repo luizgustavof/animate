@@ -63,6 +63,11 @@ and opens the channel sign-in, where the user picks the channel and clicks Allow
 3. **Check:** `node tools/publish.mjs check <name>` validates the words against each platform's limits and the video (vertical, ≤ 3 min for a Short, audio), and prints the exact request. Fix every ERROR; weigh every warning.
 4. **Ask** (approval "ask"): show the title, the first lines of the description, the hashtags, the channel and the time, with AskUserQuestion: post now / schedule at the next slot / change the words.
 5. **Post:** `node tools/publish.mjs post <name> --at next` (the channel's next free slot) or `--at "2026-11-05 19:00"` or no `--at` (now). A first test on a new channel: `--privacy private`. An upload that dies (network, closed laptop) resumes where it stopped when you run the same command again.
+   **When the studio is running** (127.0.0.1:4747 answers), post through it instead, so the user watches the progress bars
+   (per platform, also in the sidebar): `POST /api/pieces/<slug>/publish` with header `x-studio-token: <~/.animate/studio-token>`
+   and body `{"platforms":["youtube","tiktok"],"at":"<ISO time>"|null}` (`GET /api/channels/<name>/next-slot` gives the slot).
+   A CLI upload works the same but the studio can't show it. `node tools/studio.mjs --demo` adds `POST /api/demo/upload/<slug>`,
+   a pretend upload for checking the progress UI.
 6. **Report** the links and times. Mention any warning the tool printed (above all "locked private").
 7. **Learn:** `node tools/publish.mjs stats` pulls views, likes and comments into each `state.json` and prints them best first. Before writing the next piece's words, look at what the best and worst titles have in common, and say it in one line when you pick.
 
