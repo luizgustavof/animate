@@ -57,6 +57,7 @@ Draw every beat in the approved look. Fill `TIMELINE.board` with one key time pe
 
 ### 5. Deliver
 Send `renders/share.mp4`. Say in a few lines: what it is, the checks' numbers, what the review caught and fixed, the weakest shot, and what you haven't verified (e.g. you can't listen to the score). Ask what should change: story, look, transitions, pacing, sound.
+When the user wants it on their channels (YouTube Shorts, later TikTok and Instagram), follow the **publish** skill (`../publish/SKILL.md`): it writes the titles and captions and posts from `renders/` without being pointed at the file.
 
 ### 6. Learn
 After each run append to the piece's `LOG.md`. If something new went wrong or worked, propose a one-line rule for [craft.md](craft.md), the style's `STYLE.md` or a kit change, and add it when the user agrees.

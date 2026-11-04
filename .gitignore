@@ -10,3 +10,8 @@ plugins/**/review/
 # your own work stays local: series bibles, scripts, cast and pieces are never pushed
 /series/
 /pieces/
+/publish/
+plugins/**/studio/dist/
+.impeccable/
+!plugins/**/studio/index.html
+plugins/**/studio/tsconfig.tsbuildinfo

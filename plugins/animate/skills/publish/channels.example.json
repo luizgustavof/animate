@@ -1,0 +1,32 @@
+{
+  "channels": {
+    "my-channel": {
+      "name": "My Channel",
+      "series": "series/my-series",
+      "language": "en",
+      "approval": "ask",
+      "audience": "Who watches: age range, what they came for, what they already know.",
+      "voice": "How titles and captions sound on this channel: tone, person, what never to do.",
+      "hashtags": {
+        "always": ["#animation"],
+        "pool": ["#shorts", "#explainer", "#history"]
+      },
+      "schedule": ["12:00", "19:00"],
+      "platforms": {
+        "youtube": {
+          "account": "my-channel",
+          "channelId": "",
+          "privacy": "public",
+          "madeForKids": false,
+          "syntheticMedia": false,
+          "categoryId": "1",
+          "file": "final",
+          "notifySubscribers": true,
+          "tags": ["animation"]
+        },
+        "tiktok": {},
+        "instagram": {}
+      }
+    }
+  }
+}

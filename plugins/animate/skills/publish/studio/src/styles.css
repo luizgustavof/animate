@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@import "@fontsource/barlow/700";
+@import "@fontsource/barlow/400";
+@import "@fontsource/barlow/500";
+@import "@fontsource/barlow/600";
+
+/* A quiet dark studio: near-black ground, raised surfaces, one amber, one red. (Token names kept from the first board look.) */
+@theme {
+  --color-flap: #0d0d0f;          /* the flap face, the page ground */
+  --color-flap-2: #1b1b1e;        /* a raised flap, a row */
+  --color-flap-3: #26262b;        /* hover, the split hairline's light side */
+  --color-rule: #2e2f35;          /* cell edges, table rules */
+  --color-ink: #f2f2f2;           /* flap white */
+  --color-ink-2: #b9bcc2;         /* secondary text on flaps (steel-tinted, not gray) */
+  --color-ink-3: #8a8f98;         /* labels, ≥4.5:1 on flap */
+  --color-amber: #ffb400;         /* scheduled, active, the primary action */
+  --color-amber-ink: #1a1200;     /* text on amber */
+  --color-red: #ff4b45;           /* failed, errors (lifted from #D32F2F for AA on black) */
+  --color-red-deep: #d32f2f;
+  --color-steel: #b6bbc2;
+  --color-steel-2: #7d838c;
+  --color-steel-3: #4a4f57;
+
+  --font-display: "Barlow", system-ui, sans-serif;
+  --font-cond: "Barlow", system-ui, sans-serif;
+  --font-sans: "Barlow", system-ui, sans-serif;
+
+  --ease-flap: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html { background: var(--color-flap); color: var(--color-ink); font-family: var(--font-sans); color-scheme: dark; }
+  body { min-height: 100dvh; font-feature-settings: "tnum" 1, "lnum" 1; -webkit-font-smoothing: antialiased; }
+  ::selection { background: var(--color-amber); color: var(--color-amber-ink); }
+  :focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; }
+  input, textarea { caret-color: var(--color-amber); }
+  a { text-underline-offset: 0.2em; }
+  * { scrollbar-width: thin; scrollbar-color: var(--color-steel-3) transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb { background: var(--color-steel-3); border: 3px solid var(--color-flap); border-radius: 0; }
+  *::-webkit-scrollbar-track { background: transparent; }
+}
+
+@layer components {
+  /* the frame surfaces (the names stay; the look is flat now) */
+  .steel { background: #121215; color: var(--color-ink); }
+  .steel-dark { background: #121215; }
+  .label { font-family: var(--font-cond); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.7rem; color: var(--color-ink-3); }
+  .caps { font-family: var(--font-cond); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+}
+
+/* a raised row surface (a utility, so variants like [&>td]:flap-row work) */
+@utility flap-row {
+  background: var(--color-flap-2);
+}
+
+/* a value that changed: it rises in */
+@keyframes flap-turn {
+  from { opacity: 0; transform: translateY(35%); }
+  to { opacity: 1; transform: none; }
+}
+.flap-turn { animation: flap-turn 220ms var(--ease-out-expo) both; display: inline-block; }
+
+/* the row lamp while something is moving (an upload, Claude writing) */
+@keyframes lamp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.lamp-blink { animation: lamp-blink 1.1s steps(2, jump-none) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flap-turn, .lamp-blink { animation: none; }
+}
