@@ -12,8 +12,8 @@ Node server (`tools/studio.mjs`) on 127.0.0.1. Chosen by the user ("tailwind", "
 
 ## Users
 One creator, alone at their own desktop computer (a monitor, mouse and keyboard; never a phone), who writes, renders and
-publishes every video themselves. Today one channel (an analog-horror VHS series in Brazilian Portuguese, "Festa do Algodão",
-on the YouTube channel "Utinha Sz"); they plan **more than ten channels** within months, each a different niche and series.
+publishes every video themselves. Today one channel (an analog-horror VHS series in Brazilian Portuguese);
+they plan **more than ten channels** within months, each a different niche and series.
 They speak Portuguese (Brazil); the interface speaks it too. They want it "so simple it's idiot-proof": no commands, no file
 paths, no settings to understand.
 
