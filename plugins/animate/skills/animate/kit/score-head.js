@@ -143,6 +143,44 @@ async function buildScore(sampleRate = 48000, part = 'mix', normIn = null) {
   function bass(t, f, vel) { const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; const g = ac.createGain(); env(g, t, 0.006, vel, 0.28); osc('triangle', f, t, t + 0.35).connect(lp); lp.connect(g); out(g); }
   function blip(t, f0, f1, dur, vel, pan = 0) { const o = osc('sine', f0, t, t + dur + 0.05); o.frequency.exponentialRampToValueAtTime(f1, t + dur); const g = ac.createGain(); env(g, t, 0.002, vel, dur); o.connect(g); out(g, pan, 0.2); }
 
+  // ---- short notes are built just ahead of the moment they play (kit/score-tail.js suspends the render every second
+  // and builds the next one). Chromium processes every node in the graph from the start of the render, scheduled or not:
+  // a score of ~1000 strums built up front spent 120 of its 128 s rendering nodes that had not started yet.
+  // A call is queued with the bus it was made on; a call made while its time is already built (a helper's inner notes)
+  // runs at once. Same sound, same nodes: only when they are created changes.
+  // And once a note has stopped (its last source's stop time + 1 s of filter tail) its nodes are disconnected, so the graph
+  // holds only what is sounding: built late, let go early. A note with a source that never stops is never let go.
+  const LAZY = [], DONE = []; let lazyAt = -Infinity, BORN = null;
+  for (const k of Object.getOwnPropertyNames(BaseAudioContext.prototype)) {
+    if (!k.startsWith('create') || typeof ac[k] !== 'function') continue;
+    const make = ac[k].bind(ac);
+    ac[k] = (...a) => {
+      const n = make(...a), rec = BORN;
+      if (rec && n instanceof AudioNode) {
+        rec.nodes.push(n);
+        if (typeof n.stop === 'function') { rec.open++; const stop = n.stop.bind(n); n.stop = (when = 0) => { rec.open--; rec.end = Math.max(rec.end, when); return stop(when); }; }
+      }
+      return n;
+    };
+  }
+  const lazy = (fn) => function (t, ...a) {
+    if (!(t > lazyAt)) return fn(t, ...a);
+    const bus = to; LAZY.push([t, () => { const keep = to; to = bus; fn(t, ...a); to = keep; }]);
+  };
+  const lazyRun = (until, now = -Infinity) => {   // build every queued note that starts before `until`; let go of those done by `now`
+    lazyAt = until;
+    const due = [], rest = [];
+    for (const q of LAZY) (q[0] <= until ? due : rest).push(q);
+    LAZY.length = 0; LAZY.push(...rest);
+    for (const q of due) {
+      const rec = BORN = { nodes: [], open: 0, end: 0 };
+      q[1](); BORN = null;
+      if (rec.nodes.length && rec.open === 0) DONE.push(rec);
+    }
+    for (let i = DONE.length - 1; i >= 0; i--) if (DONE[i].end + 1 < now) { for (const n of DONE[i].nodes) n.disconnect(); DONE.splice(i, 1); }
+  };
+  pluck = lazy(pluck); noiseHit = lazy(noiseHit); sub = lazy(sub); chime = lazy(chime); bass = lazy(bass); blip = lazy(blip);
+
   // ---- v2 instruments built from the helpers above
   function pad(t0, t1, notes, peak, o = {}) {
     const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = o.cut ?? 1200; lp.Q.value = 0.7;

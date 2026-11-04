@@ -49,6 +49,8 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 args = sys.argv[1:]
 
 
@@ -144,15 +146,11 @@ def widen(audio, sr, text, lo, hi):
 
 
 def quality(audio, sr):
-    """SQUIM's no-reference estimate of how clean a take is: PESQ (1..4.5) plus STOI (0..1), on the raw synthesis"""
-    if 'squim' not in _engines:
-        import torchaudio
-        _engines['squim'] = torchaudio.pipelines.SQUIM_OBJECTIVE.get_model()
-    import torch, torchaudio
-    x = torchaudio.functional.resample(torch.from_numpy(audio).float()[None], sr, 16000)
-    with torch.no_grad():
-        stoi, pesq, _ = _engines['squim'](x)
-    return pesq.item() + stoi.item()
+    """SQUIM's no-reference estimate of how clean a take is: PESQ (1..4.5) plus STOI (0..1), on the raw synthesis.
+    Scored in windows of at most 15 s (tools/voicescore.py): SQUIM's memory grows with the square of the length."""
+    from voicescore import squim   # beside this file
+    pesq, stoi = squim(audio, sr)
+    return pesq + stoi
 
 
 def chatterbox(text, V, out):

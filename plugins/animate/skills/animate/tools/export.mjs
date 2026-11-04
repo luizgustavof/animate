@@ -19,7 +19,7 @@
 //           over the score: the score at "music" dB, ducked a little more while the voice speaks, then -14 LUFS
 //
 // speed:    frames are JPEG (q 0.95, ~10x smaller and faster than PNG; the H.264 master is 4:2:0 anyway) — --png keeps them lossless;
-//           one worker per CPU core (--workers N); canvas 2D stays in software (reading a GPU canvas back cost 14% more on a Ryzen 7 + RX 9070 XT)
+//           one worker per CPU core, fewer when free memory is short (0.7 GB each, 4 GB kept free; --workers N); canvas 2D stays in software (reading a GPU canvas back cost 14% more on a Ryzen 7 + RX 9070 XT)
 //           and the browser uses the GPU only for WebGL pieces (TIMELINE.gpu) or --gpu;
 //           ANIMATE_FRAMES=<dir> keeps the frames in <dir>/<piece>/ (off a synced folder like OneDrive: 1.4 GB an episode);
 //           the score is re-rendered only when it changed (renders/.audio-sig); --force-audio re-renders it anyway;
@@ -70,7 +70,11 @@ if (opt('formats')) {
   process.exit(0);
 }
 const CORES = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
-const workers = parseInt(opt('workers', String(Math.max(2, Math.min(12, CORES)))), 10);
+// workers by cores AND free memory: each worker is a Chromium page with its own set cache (~700 MB at the peak), and 4 GB stay
+// free for the rest of the machine (the audio page, ffmpeg, the user's own programs); --workers N still decides
+const FREE_GB = os.freemem() / 2 ** 30, RESERVE_GB = 4, PER_WORKER_GB = 0.7;
+const BY_RAM = Math.max(1, Math.floor((FREE_GB - RESERVE_GB) / PER_WORKER_GB));
+const workers = parseInt(opt('workers', String(Math.max(1, Math.min(12, CORES, BY_RAM)))), 10);
 const EXT = flag('png') ? 'png' : 'jpg', MIME = EXT === 'png' ? 'image/png' : 'image/jpeg', QUALITY = 0.95;
 // ---- the video encoder: the graphics card's when ffmpeg has one that works here, else libx264
 function pickEncoder() {
@@ -159,19 +163,93 @@ fs.mkdirSync(FR, { recursive: true });
 // a piece that got shorter leaves its old tail frames behind, and ffmpeg's image sequence would join them on: remove them
 // (and frames of the other format, so the encoder reads one sequence)
 for (const n of fs.readdirSync(FR)) { const m = /^f(\d+)\.(png|jpg)$/.exec(n); if (m && (Number(m[1]) >= meta.frames || (m[2] !== EXT && !onlyAudio))) fs.unlinkSync(path.join(FR, n)); }
-console.log(`workers: ${workers} (${CORES} cores) · frames: ${EXT.toUpperCase()} · encoder: ${ENC.name}`);
+console.log(`workers: ${workers} (${CORES} cores, ${FREE_GB.toFixed(1)} GB free${!opt('workers') && BY_RAM < Math.min(12, CORES) ? ', held back by memory' : ''}) · frames: ${EXT.toUpperCase()} · encoder: ${ENC.name}`);
 if (BLUR > 1 && !(await first.evaluate(() => typeof STYLE === 'object' && STYLE.ones))) console.warn(`warning: --blur ${BLUR} does nothing for a style on 2s (STYLE.ones is false): every sub-frame is the same drawing`);
 
 // ---- the sound runs on its own page beside the frame workers (it used to go first: ~45s of a 135s export); the video is
 // encoded without it and the audio is muxed in at the end (a stream copy, ~1s)
 const run = (args) => new Promise((res) => spawn('ffmpeg', args, { stdio: 'inherit' }).on('close', (status) => res({ status })));
 const wavPath = path.join(RENDERS, 'audio.wav'), sigPath = path.join(RENDERS, '.audio-sig');
-// the sound depends on the score's code, its cues, the voice and the mix settings; if none of them changed, the last audio.wav stands
+// The score is signed by what it would play, not by what it reads: buildScore() is run once with the Web Audio API
+// recording every node, setting, automation event, connection and buffer it gets — then stopped before startRendering.
+// So moving a cut, editing a scene or a cue the score never uses keeps audio.wav, and anything the score does with
+// them (a strum that starts on a scene's first frame) still re-renders it. Takes ~1-2 s instead of minutes of rendering.
+// A piece the recorder can't follow falls back to signing the score's code and the timeline.
+async function scoreTrace() {
+  const SENTINEL = '__score_trace_done__', log = [], buffers = [], ids = new WeakMap(), names = new WeakMap(), undo = [];
+  let next = 0;
+  const id = (o) => { if (names.has(o)) return names.get(o); if (!ids.has(o)) ids.set(o, next++); return '#' + ids.get(o); };
+  const digest = async (arr) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const pending = [];
+  const val = (v) => {
+    if (v == null || typeof v !== 'object') return typeof v === 'function' ? 'fn' : v;
+    if (ArrayBuffer.isView(v)) { const slot = log.length; const copy = v.slice(); pending.push(digest(copy).then((h) => { log[slot] = ['arr', h]; })); log.push(null); return '@' + slot; }
+    if (Array.isArray(v)) return v.map(val);
+    if (Object.getPrototypeOf(v) === Object.prototype) return Object.entries(v).map(([k, x]) => [k, val(x)]);   // an options bag
+    return id(v);
+  };
+  // every AudioParam of a new node is named after it (node#.gain), so automating gain or frequency of the same node differ
+  const nameParams = (node) => {
+    if (!(node instanceof AudioNode)) return;
+    for (let p = Object.getPrototypeOf(node); p && p !== AudioNode.prototype; p = Object.getPrototypeOf(p))
+      for (const k of Object.getOwnPropertyNames(p)) { let x; try { x = node[k]; } catch { continue; } if (x instanceof AudioParam) names.set(x, id(node) + '.' + k); }
+  };
+  const wrap = (proto, k, after) => {
+    const d = Object.getOwnPropertyDescriptor(proto, k); if (!d || typeof d.value !== 'function') return;
+    const f = d.value;
+    proto[k] = function (...a) { const r = f.apply(this, a); log.push([id(this), k, ...a.map(val)]); if (after) after(r, a); return r; };
+    undo.push(() => { proto[k] = f; });
+  };
+  const wrapSet = (proto, k) => {
+    const d = Object.getOwnPropertyDescriptor(proto, k); if (!d || !d.set) return;
+    Object.defineProperty(proto, k, { ...d, set(v) { log.push([id(this), k + '=', val(v)]); d.set.call(this, v); } });
+    undo.push(() => Object.defineProperty(proto, k, d));
+  };
+  try {
+    const BAC = BaseAudioContext.prototype;
+    for (const k of Object.getOwnPropertyNames(BAC)) if (k.startsWith('create')) wrap(BAC, k, (r) => { nameParams(r); if (r instanceof AudioBuffer) buffers.push(r); });
+    const dec = BAC.decodeAudioData;
+    BAC.decodeAudioData = function (...a) { return dec.apply(this, a).then((b) => { log.push([id(this), 'decoded', id(b)]); buffers.push(b); return b; }); };
+    undo.push(() => { BAC.decodeAudioData = dec; });
+    wrap(AudioNode.prototype, 'connect'); wrap(AudioNode.prototype, 'disconnect');
+    for (const k of ['setValueAtTime', 'linearRampToValueAtTime', 'exponentialRampToValueAtTime', 'setTargetAtTime', 'setValueCurveAtTime', 'cancelScheduledValues', 'cancelAndHoldAtTime']) wrap(AudioParam.prototype, k);
+    wrapSet(AudioParam.prototype, 'value');
+    for (const P of [AudioScheduledSourceNode, AudioBufferSourceNode, OscillatorNode, ConstantSourceNode]) for (const k of ['start', 'stop']) wrap(P.prototype, k);
+    wrap(OscillatorNode.prototype, 'setPeriodicWave');
+    for (const [P, ks] of [[AudioNode, ['channelCount', 'channelCountMode', 'channelInterpretation']], [OscillatorNode, ['type']], [BiquadFilterNode, ['type']],
+      [AudioBufferSourceNode, ['buffer', 'loop', 'loopStart', 'loopEnd']], [ConvolverNode, ['buffer', 'normalize']], [WaveShaperNode, ['curve', 'oversample']],
+      [PannerNode, ['panningModel', 'distanceModel', 'refDistance', 'maxDistance', 'rolloffFactor', 'coneInnerAngle', 'coneOuterAngle', 'coneOuterGain']]]) for (const k of ks) wrapSet(P.prototype, k);
+    const OAC = window.OfflineAudioContext;
+    window.OfflineAudioContext = class extends OAC { constructor(...a) { super(...a); log.push(['ctx', ...a.map(val)]); nameParams(this.destination); } };
+    undo.push(() => { window.OfflineAudioContext = OAC; });
+    const sr = OAC.prototype.startRendering;
+    // the notes kit/score-head.js builds just in time are built all at once here (ac.__lazyFlush), so they are signed too
+    OAC.prototype.startRendering = function () { if (typeof this.__lazyFlush === 'function') this.__lazyFlush(); return Promise.reject(new Error(SENTINEL)); };
+    undo.push(() => { OAC.prototype.startRendering = sr; });
+    try { await buildScore(48000, 'mix', 'raw'); throw new Error('the score finished without rendering'); } catch (e) { if (e.message !== SENTINEL) throw e; }
+    for (const b of buffers) for (let c = 0; c < b.numberOfChannels; c++) log.push([id(b), 'data', c, b.length, b.sampleRate, await digest(b.getChannelData(c))]);
+    await Promise.all(pending);
+    // what runs on the rendered buffer: the loop fold (the end of buildScore, kit/score-tail.js), the levelling, the WAV writer
+    const tail = buildScore.toString(), at = tail.lastIndexOf('startRendering');
+    log.push(['post', typeof LOOP_T === 'number' ? LOOP_T : null, at >= 0 ? tail.slice(at) : tail, ...[typeof levelScore === 'function' && levelScore, typeof renderAudioAll === 'function' && renderAudioAll, typeof encodeWav === 'function' && encodeWav].map((f) => (f ? f.toString() : null))]);
+    const bytes = new TextEncoder().encode(JSON.stringify(log));
+    return { hash: await digest(bytes), events: log.length };
+  } finally { for (const u of undo.reverse()) u(); }
+}
+// the sound depends on what the score plays, the voice and the mix settings; if none of them changed, the last audio.wav stands
 const audioSig = async () => {
-  const T = await first.evaluate(() => JSON.stringify([buildScore.toString(), TIMELINE.narration, TIMELINE.cues, TIMELINE.shots, TIMELINE.acts, TIMELINE.duration]));
-  const vo = PIECE_JSON.voice?.file ? path.resolve(ROOT, PIECE_JSON.voice.file) : null;
-  // this file too: the voice-over mix and the limiter live here
-  return createHash('sha1').update(T).update(JSON.stringify([PIECE_JSON.voice, PIECE_JSON.music])).update(vo && fs.existsSync(vo) ? fs.readFileSync(vo) : '').update(fs.readFileSync(process.argv[1])).digest('hex');
+  let T;
+  try {
+    const t0 = Date.now(), r = await first.evaluate(scoreTrace);
+    T = r.hash; console.log(`audio: score signed by its ${r.events} audio events in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  } catch (e) {
+    console.warn(`audio: could not trace the score (${String(e.message || e).split('\n')[0]}); signing its code and timeline instead`);
+    T = await first.evaluate(() => JSON.stringify([buildScore.toString(), TIMELINE.narration, TIMELINE.cues, TIMELINE.shots, TIMELINE.acts, TIMELINE.duration]));
+  }
+  const vo = PIECE_JSON.voice?.file ? path.resolve(ROOT, PIECE_JSON.voice.file) : null, vj = path.join(ROOT, 'voice.json');
+  // this file too: the voice-over mix and the limiter live here; voice.json's lines drive the ducking
+  return createHash('sha1').update(T).update(JSON.stringify([PIECE_JSON.voice, PIECE_JSON.music])).update(vo && fs.existsSync(vo) ? fs.readFileSync(vo) : '')
+    .update(fs.existsSync(vj) ? JSON.stringify(JSON.parse(fs.readFileSync(vj, 'utf8')).lines?.map((l) => [l.t0, l.t1])) : '').update(fs.readFileSync(process.argv[1])).digest('hex');
 };
 const sigNow = flag('no-audio') ? null : await audioSig();
 const audioFresh = !flag('force-audio') && fs.existsSync(wavPath) && fs.existsSync(sigPath) && fs.readFileSync(sigPath, 'utf8') === sigNow;

@@ -2,6 +2,16 @@
   //  kit/score-tail.js — render, fold the tail over the loop point, loudness stage
   //  (RMS-normalise to -17 dBFS, look-ahead limiter at -1 dBFS; stems share the mix gain curve)
   // =====================================================================
+  // the queued short notes (kit/score-head.js lazy): the first second now, then each next second while the render is
+  // suspended a second earlier (AHEAD keeps a note that starts right at a suspend point ahead of the render clock)
+  const LAZY_STEP = 1, LAZY_AHEAD = 0.25, DUR = len / sampleRate;
+  const horizon = (at) => (at + 2 * LAZY_STEP >= DUR ? Infinity : at + LAZY_STEP + LAZY_AHEAD);   // the last suspend builds the rest
+  lazyRun(horizon(0));
+  for (let T = LAZY_STEP; T < DUR - LAZY_STEP / 2; T += LAZY_STEP) {
+    const at = T;
+    ac.suspend(at).then(() => { lazyRun(horizon(at), at); ac.resume(); });
+  }
+  ac.__lazyFlush = () => lazyRun(Infinity);   // tools/export.mjs builds everything to sign the score without rendering it
   const buf = await ac.startRendering();
   // fold the tail over the loop point so the loop is seamless
   const N = Math.round(LOOP_T * sampleRate), L = new Float32Array(N), Rr = new Float32Array(N);
