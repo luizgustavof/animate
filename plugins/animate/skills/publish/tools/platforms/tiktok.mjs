@@ -75,7 +75,8 @@ async function api(token, method, url, body) {
     headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json; charset=UTF-8' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const j = await r.json().catch(() => ({}));
+  // post ids are 64-bit numbers: JSON.parse rounds them (…215 became …000), so they are read as strings
+  const j = await r.text().then(t => JSON.parse(t.replace(/([:\[,]\s*)(-?\d{16,})(?=\s*[,\]}])/g, '$1"$2"'))).catch(() => ({}));
   if (!r.ok || (j.error?.code && j.error.code !== 'ok')) throw apiError(r.status, j);
   return j.data ?? {};
 }
