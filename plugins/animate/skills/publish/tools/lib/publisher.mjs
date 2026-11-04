@@ -251,7 +251,10 @@ export async function refreshStats(pieces, emit = () => {}) {
   for (const p of pieces) {
     for (const [key, e] of Object.entries(loadState(p).posts)) {
       if (!e.id || !PLATFORMS[e.platform]?.stats) continue;
-      (byAccount[`${e.platform}/${e.account}`] ||= []).push({ p, key, id: e.id });
+      // TikTok counts by post id, the number in the post link (a draft or a direct post keeps its publish_id in e.id)
+      const id = e.platform === 'tiktok' ? (/\/video\/(\d+)/.exec(e.url || '')?.[1] ?? null) : e.id;
+      if (!id) continue;
+      (byAccount[`${e.platform}/${e.account}`] ||= []).push({ p, key, id });
     }
   }
   const rows = [];

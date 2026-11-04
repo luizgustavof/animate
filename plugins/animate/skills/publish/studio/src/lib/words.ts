@@ -96,6 +96,7 @@ export function errorText(msg: string | null | undefined): string {
   if (/quotaExceeded/.test(msg)) return 'A cota diária da API do YouTube acabou. Ela volta à meia-noite do horário do Pacífico (umas 5h aqui).';
   if (/sign-in expired|invalid_grant/i.test(msg)) return 'O login do YouTube venceu. Conecte de novo em Canais.';
   if (/spam_risk_too_many_pending_share/.test(msg)) return 'O TikTok já tem 5 rascunhos esperando na sua caixa de entrada. Poste ou apague alguns no app e envie este de novo.';
+  if (/NEEDS_TIKTOK_STATS/.test(msg)) return 'Os números do TikTok precisam da permissão video.list: adicione o Display API no app do TikTok e clique em Reconectar em Canais.';
   if (/^NEEDS_TIKTOK_PUBLISH/.test(msg)) return 'Para postar direto, ligue o Direct Post no app de desenvolvedor do TikTok e clique em Reconectar no TikTok (em Canais).';
   if (/unaudited_client_can_only_post_to_private_accounts/.test(msg)) return 'Até o TikTok aprovar o app, postar direto só funciona com a conta do TikTok em modo privado. Deixe a conta privada nas configurações do app ou envie como rascunho.';
   if (/privacy_level_option_mismatch/.test(msg)) return 'O TikTok não aceita essa opção de quem pode ver para esta conta agora. Escolha outra.';

@@ -16,7 +16,7 @@ export const RELAY = 'https://luizgustavof.github.io/animate/tiktok/callback/';
 const API = 'https://open.tiktokapis.com/v2';
 // video.publish is for direct posting (needs "Direct Post" on in the developer app, and TikTok's audit before posts can be
 // public); drafts only need video.upload
-const SCOPES = ['user.info.basic', 'video.upload', 'video.publish'];
+const SCOPES = ['user.info.basic', 'video.upload', 'video.publish', 'video.list'];   // video.list: views and likes per post
 export const PRIVACY = { PUBLIC_TO_EVERYONE: 'public', MUTUAL_FOLLOW_FRIENDS: 'friends', FOLLOWER_OF_CREATOR: 'followers', SELF_ONLY: 'private' };
 // TikTok's chunk rules: 5–64 MB each, the last may run to 128 MB, at most 1000, in order. 50,000,000 bytes is inside the
 // range whether "MB" means 10^6 or 2^20, and the merged last chunk stays under 100 MB.
@@ -319,6 +319,25 @@ export async function drafts(account, ids) {
         url: postId && username ? `https://www.tiktok.com/@${username}/video/${postId}` : null,
       };
     } catch (e) { out[id] = { status: null, error: e.message }; }
+  }
+  return out;
+}
+
+// numbers of public posts (Display API, scope video.list). ids: post ids (the number in the post link). Up to 20 per call.
+// → { [id]: { views, likes, comments, shares } }
+export async function stats(account, ids) {
+  const out = {};
+  if (!ids.length) return out;
+  const saved = readJson(tokenFile(account, 'tiktok'), null);
+  if (saved?.scope && !String(saved.scope).split(',').map(x => x.trim()).includes('video.list')) {
+    throw new Error('NEEDS_TIKTOK_STATS: the TikTok sign-in has no video.list permission (add Display API to the app, then Reconectar)');
+  }
+  const token = await session(account, { reauth: false }).token();
+  for (let i = 0; i < ids.length; i += 20) {
+    const d = await api(token, 'POST', `${API}/video/query/?fields=id,view_count,like_count,comment_count,share_count`, { filters: { video_ids: ids.slice(i, i + 20) } });
+    for (const v of d.videos || []) {
+      out[String(v.id)] = { views: Number(v.view_count || 0), likes: Number(v.like_count || 0), comments: Number(v.comment_count || 0), shares: Number(v.share_count || 0) };
+    }
   }
   return out;
 }

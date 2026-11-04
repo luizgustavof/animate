@@ -337,8 +337,11 @@ route('PUT', '/api/platforms/tiktok/app', async (req, res) => {
 
 route('GET', '/api/stats', (req, res) => {
   const rows = [];
-  for (const p of listPieces(ROOT)) for (const [key, e] of Object.entries(loadState(p).posts)) {
-    if (e.id) rows.push({ slug: p.slug, title: e.title, key, platform: e.platform, channel: e.channel, url: e.url, postedAt: e.postedAt, stats: e.stats || null });
+  for (const p of listPieces(ROOT)) {
+    const posts = loadState(p).posts;
+    // a TikTok post carries no title of its own: show the episode's (the YouTube one), not the folder name
+    const fallback = Object.values(posts).find(x => x.title)?.title || readJson(metaFile(p), null)?.title || p.slug;
+    for (const [key, e] of Object.entries(posts)) if (e.id) rows.push({ slug: p.slug, title: e.title || fallback, key, platform: e.platform, channel: e.channel, url: e.url, postedAt: e.postedAt, stats: e.stats || null });
   }
   json(res, 200, rows);
 });
