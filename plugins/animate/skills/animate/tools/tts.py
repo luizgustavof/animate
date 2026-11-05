@@ -274,13 +274,27 @@ class ElevenHTTP(Exception):
         super().__init__(f'{code} {status} {msg}'.strip()); self.code, self.status, self.msg = code, status, msg
 
 
+def windows_user_env(name):
+    """a user variable set with setx after this process (or the app that started it) began: Windows writes it to
+    HKCU\\Environment at once, but running programs only see it after a restart"""
+    if os.name != 'nt':
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as k:
+            return winreg.QueryValueEx(k, name)[0] or None
+    except OSError:
+        return None
+
+
 def eleven_call(method, path, body=None, query=None):
     """one request to the ElevenLabs API with the key from ELEVENLABS_API_KEY (never written anywhere, never printed);
     429 and 5xx are retried with backoff, honouring Retry-After"""
     import time, urllib.error, urllib.parse, urllib.request
-    key = os.environ.get('ELEVENLABS_API_KEY')
+    key = os.environ.get('ELEVENLABS_API_KEY') or windows_user_env('ELEVENLABS_API_KEY')
     if not key:
-        raise ElevenError('ELEVENLABS_API_KEY is not set: create a key at elevenlabs.io (Developers -> API Keys) and set it as an environment variable')
+        raise ElevenError('ELEVENLABS_API_KEY is not set: create a key at elevenlabs.io (Developers -> API Keys) and set it as an environment variable'
+                          + (' (setx ELEVENLABS_API_KEY "<key>")' if os.name == 'nt' else ''))
     url = API + path + ('?' + urllib.parse.urlencode(query) if query else '')
     data = json.dumps(body).encode('utf-8') if body is not None else None
     for attempt in range(4):
