@@ -3,12 +3,12 @@
 //   usage: node tools/voice.mjs pieces/<name> [--scratch] [--model small.en] [--rate 0]
 // reads  <piece>/voice/script.json:
 //   { "lang": "en", "lead": 0.8, "tail": 1.5, "lines": [ { "id": "open", "text": "As it is spoken.", "file": "open.mp3", "after": 0.4 }, ... ] }
-//   file   the line's audio, relative to <piece>/voice/: a text-to-speech take (e.g. the ElevenLabs MCP's download link,
+//   file   the line's audio, relative to <piece>/voice/: a text-to-speech take (tools/tts.py, or the ElevenLabs MCP's download link
 //          saved there), or the user's own recording. One file per line, so pauses and re-takes stay per line.
 //   after  the pause after the line (s); lead = silence before the first line, tail = after the last ("total": 120 sets the tail to end there)
 // writes <piece>/voice/voice.wav (48 kHz mono, the lines with their pauses) and <piece>/voice.json:
 //   { duration, lines: [ { id, text, t0, t1, words: [ { w, t0, t1 } ] } ], envFps, env: [loudness per frame 0..1] };
-//   tools/build.mjs injects it as VOICE. Takes can come from tools/tts.py (local, free: Kokoro, Chatterbox, Piper).
+//   tools/build.mjs injects it as VOICE. Takes can come from tools/tts.py (local, free: Kokoro, Chatterbox, Piper; or ElevenLabs via its API).
 // Word times come from the audio itself (tools/voice_words.py, faster-whisper, local); without it they are estimated
 // from the letters. --scratch makes any missing line with the OS's own speech (Windows SAPI, macOS say) so the picture
 // can be timed before the real voice exists: swap the real takes in, run this again, rebuild — scenes that cue from

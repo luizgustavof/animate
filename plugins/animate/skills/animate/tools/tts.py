@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Local, free text-to-speech for a piece's voice-over: one take per line of <piece>/voice/script.json.
-   usage: python tools/tts.py <piece> [--only id1,id2] [--models DIR] [--force]
+"""Text-to-speech for a piece's voice-over: one take per line of <piece>/voice/script.json. Local and free by default
+(Kokoro, Chatterbox, Piper); ElevenLabs through its API when a voice asks for it.
+   usage: python tools/tts.py <piece> [--only id1,id2] [--models DIR] [--force] [--dry-run]
+          python tools/tts.py --voices          (the ElevenLabs voices on your account, with their voice_id)
+   --dry-run lists the takes that would be made (the rest are unchanged) and the characters ElevenLabs would bill; makes nothing
 Then:  node tools/voice.mjs <piece>   (places the takes, times every word with faster-whisper, writes voice.json)
 
 script.json gains a "voices" table; each line names one with "voice" (and may override "speed", "exaggeration", "fx"):
   "voices": {
     "narrator": { "engine": "kokoro", "voice": "pm_alex", "lang": "pt-br", "speed": 0.95, "fx": "<ffmpeg -af chain>" },
     "host":     { "engine": "chatterbox", "lang": "pt", "ref": "refs/host.wav", "exaggeration": 0.7, "cfg": 0.4 },
-    "robot":    { "engine": "piper", "model": "pt_BR-faber-medium", "length": 1.1, "fx": "asetrate=22050*0.8,..." }
+    "robot":    { "engine": "piper", "model": "pt_BR-faber-medium", "length": 1.1, "fx": "asetrate=22050*0.8,..." },
+    "guest":    { "engine": "elevenlabs", "voice_id": "<from --voices>", "model": "eleven_multilingual_v2", "stability": 0.5,
+                  "similarity": 0.75, "style": 0, "speed": 1.0, "seed": 42 }
   }
-Engines (all run on your machine, no API, no credits):
+Each voice picks its own engine, so one script can mix them. Engines that run on your machine (no API, no credits):
   kokoro      Kokoro-82M (Apache-2.0) via kokoro-onnx: natural, fast on CPU. Voices: af_*/am_* (en-us), bf_*/bm_* (en-gb),
               pf_dora/pm_alex/pm_santa (pt-br; "voice" may be a blend, { "pm_alex": 0.5, "pm_santa": 0.5 }), ef_dora/em_alex (es), ff_siwis (fr), if_sara/im_nicola (it), jf_*/jm_* (ja) ...
               pip install kokoro-onnx soundfile   (model files download once from Hugging Face)
@@ -19,6 +24,18 @@ Engines (all run on your machine, no API, no credits):
   piper       Piper (MIT): small and very fast, a bit robotic — good for machines and as a fallback. pip install piper-tts
   file        an existing take, "src" (relative to the voice folder): the same audio another piece used, with this voice's fx
               (a callback that must be the very same recording, not a new synthesis of the same words)
+And one that does not (paid, needs ELEVENLABS_API_KEY in the environment; no pip install, the request uses the stdlib):
+  elevenlabs  ElevenLabs text-to-speech: "voice_id" (python tools/tts.py --voices), "model" (eleven_multilingual_v2 by
+              default; eleven_v3 the most expressive, eleven_flash_v2_5 / eleven_turbo_v2_5 fast and half the credits),
+              "stability" 0..1 (low = more varied and emotional), "similarity" 0..1, "style" 0..1, "speaker_boost",
+              "speed" 0.7..1.2, "seed" (the same seed makes the same take again), "lang" (forced only on the v2.5 models).
+              A line may override "stability", "similarity", "style", "seed" and "speed". The neighbouring lines of the
+              same voice go along as context, so the intonation runs on between takes (they are not in the hash: editing
+              a neighbour does not re-bill this line). Every take is billed by its characters, so: a take whose text,
+              voice and settings are unchanged is never requested again, "takes" is ignored, and --dry-run shows the
+              bill first. No key, no credits or an unknown voice stops the run and keeps the takes already made.
+              The take comes as PCM 24 kHz (lossless); a plan without PCM falls back to mp3. The key is never written
+              to a file or printed. ELEVENLABS_API_BASE points the requests elsewhere (a proxy, a test server).
 "fx" is an ffmpeg audio filter chain applied after synthesis (tape, phone, radio, monster ...). Takes are skipped when the
 text, voice and settings are unchanged (a hash in <id>.wav.json); --force remakes them.
 "lufs" (on the script, or per voice / line) sets every take of that voice to the same loudness after its fx, so lines sit
@@ -60,16 +77,22 @@ def opt(k, d=None):
     return d
 
 
+def flag(k):
+    if k in args:
+        args.remove(k); return True
+    return False
+
+
 only = opt('--only')
-force = '--force' in args
-if force:
-    args.remove('--force')
+force = flag('--force')
+dry = flag('--dry-run')
+voices = flag('--voices')
 models = os.path.expanduser(opt('--models', os.environ.get('TTS_MODELS', '~/.cache/animate-tts')))
-if not args:
+if not args and not voices:
     print(__doc__); sys.exit(2)
-piece = args[0]
-vdir = os.path.join(piece, 'voice')
-S = json.load(open(os.path.join(vdir, 'script.json'), encoding='utf-8'))
+piece = args[0] if args else None
+vdir = os.path.join(piece, 'voice') if piece else None
+S = json.load(open(os.path.join(vdir, 'script.json'), encoding='utf-8')) if piece else None
 _engines = {}
 
 
@@ -237,21 +260,135 @@ def wow(wav, pct=0.15, seed='wow'):
     sf.write(wav, y.astype(np.float32), sr, subtype='FLOAT')
 
 
+API = os.environ.get('ELEVENLABS_API_BASE', 'https://api.elevenlabs.io').rstrip('/')   # the base can point at a proxy or a test server
+_spent = [0]        # characters ElevenLabs billed this run
+_eleven_mp3 = []    # set once the account turned PCM down: the rest of the run asks for mp3 straight away
+
+
+class ElevenError(Exception):
+    """a failure the run cannot get past (no key, no credits, a voice that does not exist): stop, keep the takes already made"""
+
+
+class ElevenHTTP(Exception):
+    def __init__(self, code, status, msg):
+        super().__init__(f'{code} {status} {msg}'.strip()); self.code, self.status, self.msg = code, status, msg
+
+
+def eleven_call(method, path, body=None, query=None):
+    """one request to the ElevenLabs API with the key from ELEVENLABS_API_KEY (never written anywhere, never printed);
+    429 and 5xx are retried with backoff, honouring Retry-After"""
+    import time, urllib.error, urllib.parse, urllib.request
+    key = os.environ.get('ELEVENLABS_API_KEY')
+    if not key:
+        raise ElevenError('ELEVENLABS_API_KEY is not set: create a key at elevenlabs.io (Developers -> API Keys) and set it as an environment variable')
+    url = API + path + ('?' + urllib.parse.urlencode(query) if query else '')
+    data = json.dumps(body).encode('utf-8') if body is not None else None
+    for attempt in range(4):
+        req = urllib.request.Request(url, data=data, method=method, headers={'xi-api-key': key, 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return r.read(), r.headers
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode('utf-8', 'replace')
+            try:
+                detail = json.loads(raw).get('detail', raw)
+            except (ValueError, AttributeError):
+                detail = raw
+            status = str(detail.get('status', '')) if isinstance(detail, dict) else ''
+            msg = str(detail.get('message', raw)) if isinstance(detail, dict) else str(detail)
+            if status == 'quota_exceeded':
+                raise ElevenError(f'ElevenLabs credits ran out ({msg})')
+            if e.code == 401:
+                raise ElevenError(f'ElevenLabs refused the key (401 {status}: {msg}) - check ELEVENLABS_API_KEY')
+            if (e.code == 429 or e.code >= 500) and attempt < 3:
+                try:
+                    wait = float(e.headers.get('Retry-After') or 0) or 2 ** (attempt + 1)
+                except ValueError:
+                    wait = 2 ** (attempt + 1)
+                print(f'  ElevenLabs answered {e.code}, retrying in {wait:.0f}s'); time.sleep(wait); continue
+            raise ElevenHTTP(e.code, status, msg)
+        except urllib.error.URLError as e:
+            if attempt < 3:
+                time.sleep(2 ** (attempt + 1)); continue
+            raise ElevenError(f'could not reach ElevenLabs ({e.reason})')
+
+
+def elevenlabs(text, V, out):
+    """a take from the ElevenLabs API: PCM 24 kHz (lossless) when the account allows it, mp3 otherwise. The same text,
+    voice, settings and seed are not re-billed (the take's hash), and "takes" is ignored: every variant costs credits."""
+    import wave
+    vid = V.get('voice_id')
+    if not vid:
+        raise ElevenError('an "elevenlabs" voice needs a "voice_id" (python tools/tts.py --voices lists the voices on your account)')
+    model = V.get('model', 'eleven_multilingual_v2')
+    body = {'text': text, 'model_id': model}
+    vs = {api: V[k] for k, api in (('stability', 'stability'), ('similarity', 'similarity_boost'), ('style', 'style'),
+                                   ('speaker_boost', 'use_speaker_boost'), ('speed', 'speed')) if k in V}
+    if vs:
+        body['voice_settings'] = vs
+    if 'seed' in V:
+        body['seed'] = int(V['seed'])
+    if V.get('lang') and model.endswith('_v2_5'):   # only the v2.5 models take a forced language; the others reject it
+        body['language_code'] = str(V['lang']).split('-')[0].lower()
+    for k, api in (('_prev', 'previous_text'), ('_next', 'next_text')):
+        if V.get(k):
+            body[api] = V[k]
+    if int(V.get('takes', 1)) > 1:
+        V['_chosen'] = '"takes" ignored: every ElevenLabs variant costs credits'
+    for fmt in (['mp3_44100_128'] if _eleven_mp3 else ['pcm_24000', 'mp3_44100_128']):
+        try:
+            audio, hdr = eleven_call('POST', f'/v1/text-to-speech/{vid}', body, {'output_format': fmt})
+            break
+        except ElevenHTTP as e:
+            if fmt.startswith('pcm') and (e.code == 403 or 'format' in f'{e.status} {e.msg}'.lower()):
+                _eleven_mp3.append(1); continue   # this plan has no PCM: mp3 for the rest of the run
+            raise ElevenError(f'ElevenLabs could not make the take ({e}) - voice_id "{vid}", model "{model}"')
+    try:
+        _spent[0] += int(hdr.get('character-cost') or len(text))
+    except ValueError:
+        _spent[0] += len(text)
+    if fmt.startswith('pcm'):
+        with wave.open(out, 'wb') as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000); w.writeframes(audio)
+    else:
+        mp3 = out + '.mp3'
+        open(mp3, 'wb').write(audio)
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', mp3, '-ac', '1', '-c:a', 'pcm_f32le', out], check=True)
+
+
+def list_voices():
+    raw, _ = eleven_call('GET', '/v1/voices')
+    vs = sorted(json.loads(raw).get('voices', []), key=lambda v: (v.get('category', ''), v.get('name', '')))
+    for v in vs:
+        lab = v.get('labels') or {}
+        about = ', '.join(str(x) for x in (lab.get('language'), lab.get('accent'), lab.get('gender'), lab.get('age'),
+                                            lab.get('descriptive') or lab.get('description'), lab.get('use_case') or lab.get('use case')) if x)
+        print(f"{v.get('voice_id', ''):22}  {v.get('name', '')[:30]:30}  {v.get('category', ''):12}  {about}")
+    print(f'{len(vs)} voice(s); put one\'s id in a voice as "voice_id"')
+
+
 def file_take(text, V, out):
     src = V['src'] if os.path.isabs(V['src']) else os.path.join(vdir, V['src'])
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', src, '-ac', '1', '-c:a', 'pcm_f32le', out], check=True)
 
 
-ENGINES = {'kokoro': kokoro, 'chatterbox': chatterbox, 'piper': piper, 'file': file_take}
-made = 0
-for L in S['lines']:
+ENGINES = {'kokoro': kokoro, 'chatterbox': chatterbox, 'piper': piper, 'elevenlabs': elevenlabs, 'file': file_take}
+if voices:
+    try:
+        list_voices()
+    except (ElevenError, ElevenHTTP) as e:
+        print(f'ElevenLabs: {e}'); sys.exit(1)
+    sys.exit(0)
+made, todo = 0, []
+for i, L in enumerate(S['lines']):
     if only and L['id'] not in only.split(','):
         continue
     V = dict(S['voices'][L['voice']])
     for k in ('lufs', 'takes'):
         if k in S and k not in V:
             V[k] = S[k]
-    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes', 'src', 'pause', 'room', 'wow'):
+    for k in ('speed', 'exaggeration', 'cfg', 'fx', 'length', 'lufs', 'takes', 'src', 'pause', 'room', 'wow',
+              'stability', 'similarity', 'style', 'seed'):
         if k in L:
             V[k] = L[k]
     out = os.path.join(vdir, f"{L['id']}.wav")
@@ -259,6 +396,23 @@ for L in S['lines']:
     meta = out + '.json'
     if not force and os.path.exists(out) and os.path.exists(meta) and json.load(open(meta)).get('sig') == sig:
         L['file'] = f"{L['id']}.wav"; continue
+    if V.get('engine') == 'elevenlabs':   # the neighbouring lines of the same voice, so the intonation runs on between takes;
+        lines = S['lines']                # outside the hash: a neighbour's edit does not re-bill this line
+        if i > 0 and lines[i - 1]['voice'] == L['voice']:
+            V['_prev'] = lines[i - 1]['text']
+        if i + 1 < len(lines) and lines[i + 1]['voice'] == L['voice']:
+            V['_next'] = lines[i + 1]['text']
+    todo.append((L, V, out, sig, meta))
+
+if dry:
+    for L, V, *_ in todo:
+        print(f"{L['id']:6} {L['voice']:10} {V.get('engine', 'kokoro'):10} {len(L['text']):4} chars  {L['text']}")
+    ch = sum(len(L['text']) for L, V, *_ in todo if V.get('engine') == 'elevenlabs')
+    print(f'{len(todo)} take(s) to make, {len(S["lines"]) - len(todo)} unchanged; ElevenLabs would bill about {ch} characters (nothing was made)')
+    sys.exit(0)
+
+
+def make(L, V, out, sig, meta):
     with tempfile.TemporaryDirectory() as td:
         raw = os.path.join(td, 'raw.wav')
         ENGINES[V.get('engine', 'kokoro')](L['text'], V, raw)
@@ -277,8 +431,20 @@ for L in S['lines']:
         else:
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-af', chain, '-ac', '1', out], check=True)
     json.dump({'sig': sig, 'engine': V.get('engine', 'kokoro')}, open(meta, 'w'))
-    L['file'] = f"{L['id']}.wav"; made += 1
+    L['file'] = f"{L['id']}.wav"
     print(f"{L['id']:6} {L['voice']:10} {V.get('engine', 'kokoro'):10} {L['text']}" + (f"   [{V['_chosen']}]" if '_chosen' in V else ''))
 
+
+stopped = None
+for k, job in enumerate(todo):
+    try:
+        make(*job); made += 1
+    except ElevenError as e:   # no key, no credits, a wrong voice: stop here and keep every take already made
+        stopped = f"stopped at line \"{job[0]['id']}\": {e}\n  still to make: {', '.join(j[0]['id'] for j in todo[k:])}"
+        break
+
 json.dump(S, open(os.path.join(vdir, 'script.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-print(f'{made} take(s) made; next: node tools/voice.mjs {piece}')
+print(f'{made} take(s) made' + (f'; ElevenLabs billed {_spent[0]} characters' if _spent[0] else '')
+      + ('' if stopped else f'; next: node tools/voice.mjs {piece}'))
+if stopped:
+    print(stopped); sys.exit(1)

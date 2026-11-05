@@ -43,7 +43,7 @@ Each style folder has a `STYLE.md` (its rules, palette, motion habits and a fram
 - **A kit** (`kit/`) — seeded randomness and a line that boils on 2s; cameras; a renderer with shape-morph transitions (the old world closes in on one object, it morphs into the next world's counterpart, the new world opens out of it) that draws through the style's hooks; a storyboard; a synthesizer and a loudness stage for phone playback.
 - **Tools** (`tools/`) — build (assembles one self-contained `index.html` from the piece, the kit and the style), test tiles, stills, storyboard, export (frames → WAV + stems → MP4), review (contact sheets and the measured checks, including text that's cut off or overlapping, and loudness), compare (reference vs frame), a reference measurer, gallery, and a frame-hash check that a kit change left a piece pixel-identical.
 - **Craft rules** (`craft.md`) — everything learned building these pieces, from "the sustained pad sets a section's loudness, not the plucks" to "cameras put a world point on a screen point".
-- **A voice-over** — it writes the script, gets one take per line from the ElevenLabs connector (or your recording), hears when every word is spoken (locally, with faster-whisper) and times the picture to the words; re-takes re-time the picture automatically.
+- **A voice-over** — it writes the script, gets one take per line from a local voice (Kokoro, free), ElevenLabs (API or connector) or your recording, hears when every word is spoken (locally, with faster-whisper) and times the picture to the words; re-takes re-time the picture automatically.
 - **Your own music** — give it a track and it maps the beats (tempo, bars, the big hits, the drops), cuts on the song's beats and puts the payoff on its loudest hit; or it composes a score in code.
 - **Your real product** — it screenshots your site (or takes your logo files) and animates the real screens inside the style.
 - **Every format from one piece** — 9:16, 1:1, 4:5 and 16:9 laid out for each shape, not cropped.
@@ -54,7 +54,7 @@ Each style folder has a `STYLE.md` (its rules, palette, motion habits and a fram
 
 ## Install
 
-Requirements: [Claude Code](https://code.claude.com), Node 18+, [Playwright](https://playwright.dev) with Chromium, and ffmpeg on your PATH. Fonts are local system fonts with fallbacks for Windows, macOS and Linux. For voice-overs: Python with `faster-whisper` (word timing) and, optionally, the ElevenLabs connector in Claude (Settings → Connectors) for the voice.
+Requirements: [Claude Code](https://code.claude.com), Node 18+, [Playwright](https://playwright.dev) with Chromium, and ffmpeg on your PATH. Fonts are local system fonts with fallbacks for Windows, macOS and Linux. For voice-overs: Python with `faster-whisper` (word timing) and, optionally, for the voice: `pip install kokoro-onnx soundfile` (local, free), an `ELEVENLABS_API_KEY` environment variable (ElevenLabs via its API, works with any agent), or the ElevenLabs connector in Claude (Settings → Connectors).
 
 ```bash
 npm i -g playwright && npx playwright install chromium
