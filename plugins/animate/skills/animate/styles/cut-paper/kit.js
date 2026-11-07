@@ -46,8 +46,7 @@ function grainIn(bb, key, k = 1) {
   stipple(bb, { key: key + 'g2', c: 'rgba(50,30,15,0.10)', n, s: 1.5, jit: 0.3 });
   pencil(bb, { key: key + 'fb', c: '#ffffff', al: 0.10, per: 700, len: 28, w: 1, a: -0.35, max: 1500 });
 }
-// a paper cutout. o: key, tear, amt, shadow, sb/sx/sy, pat(bb), crayon (colour), grain (density), shade, line;
-//   with "relight": h (height above its relief group, null = not marked), mat (a kit/relight.js material)
+// a paper cutout. o: key, tear, amt, shadow, sb/sx/sy, pat(bb), crayon (colour), grain (density), shade, line
 function cut(P, fill, o = {}) {
   const key = o.key ?? 'cut';
   const Q = torn(wobble(P, true, o.amt ?? 0.9, key, 5), key, o.tear ?? 1.3);
@@ -55,7 +54,6 @@ function cut(P, fill, o = {}) {
   if (o.shadow !== false) { ctx.shadowColor = o.shc ?? 'rgba(35,20,10,0.30)'; ctx.shadowBlur = o.sb ?? 12; ctx.shadowOffsetX = o.sx ?? 3; ctx.shadowOffsetY = o.sy ?? 7; }
   trace(Q, true); ctx.fillStyle = fill; ctx.fill();
   ctx.restore();
-  if (typeof relightMark === 'function') relightMark(Q, fill, o);   // opt-in: piece.json "relight" (kit/relight.js)
   ctx.save(); trace(Q, true); ctx.clip(); const bb = bbox(Q, 2);
   if (o.pat) o.pat(bb);
   if (o.crayon) pencil(bb, { key: key + 'cr', c: o.crayon, al: o.crAl ?? 0.4, per: o.crPer ?? 45, len: o.crLen ?? 20, a: o.crA ?? -0.9, w: 1.7, max: 5000 });

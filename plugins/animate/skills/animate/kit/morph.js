@@ -74,9 +74,7 @@ function renderEra(e, target) {   // draws era e into target; returns its overla
   const cam = camAt(e, TT); ctx.setTransform(cam.z * RS, 0, 0, cam.z * RS, cam.tx * RS, cam.ty * RS);
   const lit = typeof lightEnd === 'function';   // opt-in: piece.json "light" (kit/light.js)
   if (lit) lightBegin(e, TT);
-  const rl = typeof relightBegin === 'function' ? relightBegin(target) : undefined;   // opt-in: piece.json "relight" (kit/relight.js)
   DEFER = []; ERA_LIST[e][2](); const q = DEFER; DEFER = null;
-  if (rl !== undefined) relightEnd(target, rl);
   if (lit) lightEnd(target);
   ctx.restore(); ctx = saved; RS = 1;
   return q;
