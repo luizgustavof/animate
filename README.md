@@ -4,7 +4,7 @@ A Claude Code skill that makes short animated videos entirely in code: one `<can
 
 ![the built-in styles](docs/styles.png)
 
-*The built-in styles, each a frame from its demo piece: cut paper, crosshatch ink, riso print, sketchbook, math, pixel, isometric; cinema (cut paper with the opt-in cinema layers: depth of field, parallax, light and cast shadows, a film finish) — and the last slot: any other look, made from your references.*
+*The built-in styles, each a frame from its demo piece: cut paper, crosshatch ink, riso print, sketchbook, math, pixel, isometric; lit & lensed (cut paper with the opt-in lit & lensed layers: light and cast shadows, depth of field, parallax, a film finish) — and the last slot: any other look, made from your references.*
 
 ## How it works
 
@@ -32,9 +32,9 @@ A style is a plug-in: the story grammar, timing, sound, renderer and tools stay 
 | math | a manim-style math explainer: black stage, axes and graphs, colour-coded variables, smooth easing |
 | pixel | low-resolution eras: drawn at the true resolution, upscaled nearest-neighbour, a bitmap font |
 | isometric | precise isometric line art: constant hairlines, white faces hiding what's behind, rounded slabs, one dark accent; light or dark ground |
-| cinema | not a style of its own: any style plus the opt-in cinema layers below (the gallery frame is cut paper) |
+| lit & lensed | not a style of its own: any style plus the opt-in lit & lensed layers below (the gallery frame is cut paper) |
 
-**Cinema layers (opt-in, any style):** switched on per piece in `piece.json`; a piece without them renders exactly as before (`tools/regress.mjs` proves it frame by frame).
+**Lit & lensed layers (opt-in, any style):** light the scene and shoot it through a lens. switched on per piece in `piece.json`; a piece without them renders exactly as before (`tools/regress.mjs` proves it frame by frame).
 
 | key | kit | what it adds |
 |---|---|---|

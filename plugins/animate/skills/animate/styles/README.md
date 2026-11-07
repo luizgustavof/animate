@@ -2,7 +2,7 @@
 
 A style is a plug-in: the story, formats, timing, sound, renderer and tools stay the same, and the style supplies the look. A piece picks one with `"style": "<name>"` in its `piece.json`, and `tools/build.mjs` puts that style's `kit.js` into the built file.
 
-Build the gallery of every style's sample: `node tools/gallery.mjs styles.png [<project>/styles]` (the README's: `node tools/gallery.mjs ../../../../docs/styles.png ../../../../docs/gallery`, which adds the cinema frame).
+Build the gallery of every style's sample: `node tools/gallery.mjs styles.png [<project>/styles]` (the README's: `node tools/gallery.mjs ../../../../docs/styles.png ../../../../docs/gallery`, which adds the lit & lensed frame).
 
 | style | the look | motion | proven on |
 |---|---|---|---|
