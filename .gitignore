@@ -18,3 +18,5 @@ plugins/**/studio/tsconfig.tsbuildinfo
 # local only: leftovers waiting to be deleted, and the Claude app's per-machine config
 /_to_delete/
 /.claude/
+# realism lab: regression baselines and builds (tools/regress.mjs)
+/_lab/

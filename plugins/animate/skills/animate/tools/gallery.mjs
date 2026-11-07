@@ -20,13 +20,15 @@ for (const dir of [path.join(SKILL, 'styles'), ...extra.map((d) => path.resolve(
   if (!fs.existsSync(dir)) continue;
   const names = fs.readdirSync(dir).filter((n) => fs.existsSync(path.join(dir, n, 'sample.png')));
   names.sort((a, b) => ((ORDER.indexOf(a) + 1) || 99) - ((ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b));
-  for (const n of names) if (!items.some((i) => i.name === n)) items.push({ name: n, url: 'data:image/png;base64,' + fs.readFileSync(path.join(dir, n, 'sample.png')).toString('base64') });
+  // a tile's caption: the folder name, or its label.txt when the name needs characters a folder shouldn't have
+  const label = (n) => { const f = path.join(dir, n, 'label.txt'); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : n; };
+  for (const n of names) if (!items.some((i) => i.name === n)) items.push({ name: label(n), url: 'data:image/png;base64,' + fs.readFileSync(path.join(dir, n, 'sample.png')).toString('base64') });
 }
 if (!items.length) { console.error('no styles/*/sample.png found'); process.exit(1); }
 if (!noCustom) items.push({ name: 'custom', custom: true });
 const browser = await chromium.launch(), page = await browser.newPage();
 const png = await page.evaluate(async (items) => {
-  const PW = 270, PH = 480, GAP = 24, LAB = 52, cols = Math.min(items.length, 4), rows = Math.ceil(items.length / cols);
+  const PW = 270, PH = 480, GAP = 24, LAB = 52, cols = items.length > 8 ? Math.ceil(items.length / 2) : Math.min(items.length, 4), rows = Math.ceil(items.length / cols);
   const c = document.createElement('canvas'); c.width = GAP + cols * (PW + GAP); c.height = GAP + rows * (PH + LAB + GAP);
   const g = c.getContext('2d'); g.fillStyle = '#1e1b19'; g.fillRect(0, 0, c.width, c.height);
   for (let i = 0; i < items.length; i++) {

@@ -20,8 +20,10 @@ import { fileURLToPath } from 'node:url';
 
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT = ['src/head.html', 'kit/core.js', 'style', 'src/scenes.js', 'src/bridges.js', 'kit/morph.js', 'kit/board.js', 'kit/score-head.js', 'src/score.js', 'kit/score-tail.js'];
-const dir = process.argv[2];
-if (!dir) { console.error('usage: node tools/build.mjs <piece dir>'); process.exit(2); }
+const argv = process.argv.slice(2);
+const oi = argv.indexOf('--out'), OUT = oi >= 0 ? path.resolve(argv.splice(oi, 2)[1]) : null;   // --out <file>: write there instead of <piece>/index.html (tools/regress.mjs)
+const dir = argv[0];
+if (!dir) { console.error('usage: node tools/build.mjs <piece dir> [--out file.html]'); process.exit(2); }
 const ROOT = path.resolve(dir);
 const meta = fs.existsSync(path.join(ROOT, 'piece.json')) ? JSON.parse(fs.readFileSync(path.join(ROOT, 'piece.json'), 'utf8')) : {};
 const styleName = meta.style || 'cut-paper';
@@ -80,6 +82,21 @@ if (assetFiles.length) {
   for (const n of assetFiles) { const b = fs.readFileSync(path.join(ASSET_DIR, n)); assetBytes += b.length; src[n] = `data:${MIME[n.split('.').pop().toLowerCase()]};base64,` + b.toString('base64'); }
   inject.push(`// ---- assets/ (embedded by tools/build.mjs): ${assetFiles.join(', ')}\nconst ASSETS = {};\nwindow.ASSETS_READY = Promise.all(Object.entries(${JSON.stringify(src)}).map(([k, u]) => { const i = new Image(); i.src = u; ASSETS[k] = i; return i.decode(); }));`);
 }
+// opt-in kit modules, appended to the script (their functions are hoisted, so scenes can call them):
+//   "light": true  -> kit/light.js (2D lighting; the piece defines pieceLight(era, t))
+//   "planes": true -> kit/planes.js (multiplane camera: parallax, depth of field, haze)
+//   "talk": true   -> kit/talk.js (visemes from the voice's words, blinks, breathing, eye darts, nods)
+for (const [key, file] of [['light', 'light.js'], ['planes', 'planes.js'], ['talk', 'talk.js']]) {
+  if (!meta[key]) continue;
+  const end = out.lastIndexOf('</script>');
+  out = out.slice(0, end) + fs.readFileSync(path.join(SKILL, 'kit', file), 'utf8').replace(/\s*$/, '\n') + out.slice(end);
+}
+// opt-in cinematic finish (kit/look.js): only pieces whose piece.json has "look" get it; it runs on the GPU
+if (meta.look) {
+  inject.push(`// ---- piece.json "look" (kit/look.js): the cinematic finish over each frame\nconst LOOK = ${JSON.stringify(meta.look)};`);
+  const end = out.lastIndexOf('</script>');
+  out = out.slice(0, end) + fs.readFileSync(path.join(SKILL, 'kit', 'look.js'), 'utf8').replace(/\s*$/, '\n') + 'TIMELINE.gpu = true;   // the look runs in WebGL: export / review / still use the real GPU\n' + out.slice(end);
+}
 if (inject.length) {
   const at = out.indexOf('"use strict";') >= 0 ? out.indexOf('"use strict";') + '"use strict";'.length : out.indexOf('<script>') + '<script>'.length;
   out = out.slice(0, at) + '\n' + inject.join('\n') + out.slice(at);
@@ -91,7 +108,9 @@ if (assetFiles.length) {
 }
 const m2 = out.match(/<script>([\s\S]*)<\/script>/);
 try { new vm.Script(m2[1], { filename: 'index.html' }); } catch (e) { console.error('syntax error:', e.message); process.exit(1); }
-fs.writeFileSync(path.join(ROOT, 'index.html'), out);
+const OUT_FILE = OUT || path.join(ROOT, 'index.html');
+if (OUT) fs.mkdirSync(path.dirname(OUT), { recursive: true });
+fs.writeFileSync(OUT_FILE, out);
 const extras = [fs.existsSync(beatsFile) ? 'beats.json' : null, fs.existsSync(voiceFile) ? 'voice.json' : null, assetFiles.length ? `${assetFiles.length} asset(s), ${(assetBytes / 1e6).toFixed(1)} MB` : null].filter(Boolean);
 if (assetBytes > 12e6) console.warn(`warning: ${(assetBytes / 1e6).toFixed(1)} MB of assets — resize screenshots to the size they're shown at`);
-console.log(`built ${path.join(ROOT, 'index.html')}: ${out.split('\n').length} lines from ${parts.length} parts (style: ${styleName})${extras.length ? ' + ' + extras.join(' + ') : ''}; syntax ok; no external assets`);
+console.log(`built ${OUT_FILE}: ${out.split('\n').length} lines from ${parts.length} parts (style: ${styleName})${extras.length ? ' + ' + extras.join(' + ') : ''}; syntax ok; no external assets`);
