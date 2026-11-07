@@ -131,7 +131,7 @@ A 45–60s piece has 10–15 scenes; split the drawing across agents once the st
 | `kit/board.js` | the storyboard renderer | steps 2–3 |
 | `kit/score-*.js` | synth (pluck, pad, drone, bass, sub, noiseHit, sweep, riser, chime, blip), loudness stage | scoring |
 | [templates/](templates/) | `piece/` (an 8s cut-paper morph), `beat-cut/` (a 6s hard-cut piece with a 16th rush), `style/` (a blank style kit for new looks) | step 2 |
-| `tools/` | build, tile, still, storyboard, export, review, textcheck, compare (reference vs frame), gallery, framehash (pixel-identity check), beats (a supplied track's beat map), capture (screenshots of the user's site), voice (a voice-over's lines and word times); `measure/` for references (`refs.mjs` for stills, `shotlog.py` for video) | throughout |
+| `tools/` | build, tile, still, storyboard, export, review, textcheck, compare (reference vs frame), gallery, framehash (pixel-identity check), beats (a supplied track's beat map), capture (screenshots of the user's site), voice (a voice-over's lines and word times); `measure/` for references (`refs.mjs` for stills, `shotlog.py` for video; with torch installed, `cuts.py` finds shot changes with TransNetV2 and `look.py` scores frames and drawn characters against references with SigLIP) | throughout |
 | [examples/history-of-ai/](examples/history-of-ai/) | a full 60s worked example (cut paper) | when unsure how something fits |
 
 ## Honesty about what's proven

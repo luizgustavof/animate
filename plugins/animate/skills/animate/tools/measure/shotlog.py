@@ -41,7 +41,8 @@ def measure(v, fps=24):
         if d[f] > 8 and d2[f] < 0.35 * d[f]: flick[f] = True
     # audio per 100ms
     x, sr = audio(v); win = sr // 10; nw = len(x) // win
-    rms = np.array([np.sqrt((x[i * win:(i + 1) * win] ** 2).mean() + 1e-12) for i in range(nw)])
+    if nw < 2: x, nw = np.full(win * 2, 1e-6, np.float32), 0   # a silent video (no audio stream): picture columns only
+    rms = np.array([np.sqrt((x[i * win:(i + 1) * win] ** 2).mean() + 1e-12) for i in range(max(nw, 2))])
     db = 20 * np.log10(rms + 1e-9)
     flux = np.maximum(0, np.diff(rms, prepend=rms[0])); onset = (flux > 2.5 * (np.median(flux) + 1e-6)) & (flux > 0.01)
     secs = int(np.ceil(n / fps))
@@ -63,6 +64,7 @@ def measure(v, fps=24):
         if w1 <= w0: print(f'{s:4d}  {c:4d}  {d[f0:f1].mean():6.1f}  {held:5.0f}  (no audio)'); continue
         print(f'{s:4d}  {c:4d}  {d[f0:f1].mean():6.1f}  {held:5.0f}  {np.median(db[w0:w1]):7.1f}  {np.percentile(db[w0:w1], 90):6.1f}  {onset[w0:w1].sum():6d}  {cen:8.0f}')
     secs = min(secs, nw // 10)
+    if secs < 2: return
     print(f'loudest 100ms: {db.max():.1f} dB at {db.argmax() / 10:.1f}s; quietest second (median): {min(np.median(db[s * 10:(s + 1) * 10]) for s in range(secs - 1)):.1f} dB')
 
 if __name__ == '__main__':

@@ -120,4 +120,4 @@ Every piece is one choice from each column. Read a format as a proven combinatio
 
 ## Measuring a reference
 
-`tools/measure/shotlog.py` misreads three kinds of footage: animation on 2s hides real cuts, dissolves of 6–8 frames read as one hard cut, and windows that straddle a cut look like stepping. For cut counts use a coarse 16×16 colour diff; for grids, test the specific BPM against chance (the fraction of a frame window over the grid period). Pass the real fps.
+`tools/measure/shotlog.py` misreads three kinds of footage: animation on 2s hides real cuts, dissolves of 6–8 frames read as one hard cut, and windows that straddle a cut look like stepping. For cut counts use `tools/measure/cuts.py` (TransNetV2: it found every morph and the hard cut in a 60s cut-paper piece on 2s, and 35/36 hard cuts 0.33–1.5s apart, with no false ones), or without torch a coarse 16×16 colour diff; for grids, test the specific BPM against chance (the fraction of a frame window over the grid period). Pass the real fps.
