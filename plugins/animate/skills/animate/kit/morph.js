@@ -72,7 +72,10 @@ function renderEra(e, target) {   // draws era e into target; returns its overla
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.setLineDash([]);
   ctx.fillStyle = STYLE.paper; ctx.fillRect(0, 0, target.width, target.height);   // a clean sheet every frame: nothing carries over between frames
   const cam = camAt(e, TT); ctx.setTransform(cam.z * RS, 0, 0, cam.z * RS, cam.tx * RS, cam.ty * RS);
+  const lit = typeof lightEnd === 'function';   // opt-in: piece.json "light" (kit/light.js)
+  if (lit) lightBegin(e, TT);
   DEFER = []; ERA_LIST[e][2](); const q = DEFER; DEFER = null;
+  if (lit) lightEnd(target);
   ctx.restore(); ctx = saved; RS = 1;
   return q;
 }
@@ -133,6 +136,7 @@ function renderFrame(t, canvas, sub) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (STYLE.post) STYLE.post();
   ctx.restore();
+  if (typeof LOOK !== 'undefined' && LOOK) applyLook(cv);   // opt-in: piece.json "look" (kit/look.js)
   return s.id;
 }
 window.renderFrame = renderFrame;

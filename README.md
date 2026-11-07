@@ -4,7 +4,7 @@ A Claude Code skill that makes short animated videos entirely in code: one `<can
 
 ![the built-in styles](docs/styles.png)
 
-*The built-in styles, each a frame from its demo piece: cut paper, crosshatch ink, riso print, sketchbook, math, pixel, isometric — and the eighth slot: any other look, made from your references.*
+*The built-in styles, each a frame from its demo piece: cut paper, crosshatch ink, riso print, sketchbook, math, pixel, isometric; cinema (cut paper with the opt-in cinema layers: depth of field, parallax, light and cast shadows, a film finish) — and the last slot: any other look, made from your references.*
 
 ## How it works
 
@@ -32,6 +32,16 @@ A style is a plug-in: the story grammar, timing, sound, renderer and tools stay 
 | math | a manim-style math explainer: black stage, axes and graphs, colour-coded variables, smooth easing |
 | pixel | low-resolution eras: drawn at the true resolution, upscaled nearest-neighbour, a bitmap font |
 | isometric | precise isometric line art: constant hairlines, white faces hiding what's behind, rounded slabs, one dark accent; light or dark ground |
+| cinema | not a style of its own: any style plus the opt-in cinema layers below (the gallery frame is cut paper) |
+
+**Cinema layers (opt-in, any style):** switched on per piece in `piece.json`; a piece without them renders exactly as before (`tools/regress.mjs` proves it frame by frame).
+
+| key | kit | what it adds |
+|---|---|---|
+| `"look": "film" \| "warm-night" \| "soft-day"` | `kit/look.js` | a WebGL finish over the frame: bloom, halation, vignette, lens fringing, tone curve, grade, film grain (on the GPU) |
+| `"light": true` | `kit/light.js` | 2D lighting per scene (`pieceLight(era, t)`): ambient and light pools, glows, window beams with dust, cast shadows (`babidi = shadowed(babidi)`) |
+| `"planes": true` | `kit/planes.js` | a multiplane camera: the shot drawn as planes at depths, parallax, dolly, depth of field with focus pulls, air haze |
+| `"talk": true` | `kit/talk.js` | characters that feel alive: irregular blinks, breathing, eye darts, a head that moves with the voice, hair that follows a beat late |
 
 **Your own look:** give the skill references (a video, stills, a web page) and it follows a procedure — measure the palette, line weight, texture, motion and cut rhythm; draw 1–2 matched frames next to your references (`tools/compare.mjs`); ask for your thumbs up; save it as `styles/<name>/` in your project so every later piece can use it. Reference media stays on your machine.
 

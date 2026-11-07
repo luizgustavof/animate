@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { GPU_ARGS, gpuReport } from './gpu.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = (() => { try { return require('playwright'); } catch { return require(path.join(execSync('npm root -g').toString().trim(), 'playwright')); } })();
 const args = process.argv.slice(2);
@@ -15,10 +16,17 @@ const fi = args.indexOf('--format'), format = fi >= 0 ? args.splice(fi, 2)[1] : 
 const [src, sec, out] = args;
 if (!src || sec == null || !out) { console.error('usage: node tools/still.mjs <piece dir | index.html> <seconds> <out.png> [--scale 0.5]'); process.exit(2); }
 const file = src.endsWith('.html') ? src : path.join(src, 'index.html');
-const browser = await chromium.launch(), page = await browser.newPage();
-page.on('pageerror', (e) => { console.error('PAGE ERROR:', e.message); process.exitCode = 1; });
-await page.goto(pathToFileURL(path.resolve(file)).href + '?export=1' + (format ? `&format=${encodeURIComponent(format)}` : ''));
-await page.waitForFunction(() => window.TIMELINE && window.renderFrame);
+const URL_ = pathToFileURL(path.resolve(file)).href + '?export=1' + (format ? `&format=${encodeURIComponent(format)}` : '');
+async function open(args) {
+  const b = await chromium.launch({ args }), p = await b.newPage();
+  p.on('pageerror', (e) => { console.error('PAGE ERROR:', e.message); process.exitCode = 1; });
+  await p.goto(URL_);
+  await p.waitForFunction(() => window.TIMELINE && window.renderFrame);
+  return [b, p];
+}
+let [browser, page] = await open([]);
+// WebGL pieces (TIMELINE.gpu: cinema3d, a piece.json "look") re-open on the real GPU
+if (await page.evaluate(() => !!window.TIMELINE.gpu)) { await browser.close(); [browser, page] = await open(GPU_ARGS); await gpuReport(page); }
 await page.evaluate(() => document.fonts.ready);
 const times = String(sec).split(',').map(Number);
 const url = await page.evaluate(([ts, k]) => {
