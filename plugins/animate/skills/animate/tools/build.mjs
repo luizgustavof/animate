@@ -86,11 +86,13 @@ if (assetFiles.length) {
 //   "light": true  -> kit/light.js (2D lighting; the piece defines pieceLight(era, t))
 //   "planes": true -> kit/planes.js (multiplane camera: parallax, depth of field, haze)
 //   "talk": true   -> kit/talk.js (visemes from the voice's words, blinks, breathing, eye darts, nods)
-for (const [key, file] of [['light', 'light.js'], ['planes', 'planes.js'], ['talk', 'talk.js']]) {
+//   "relight": true -> kit/relight.js (volume from light: normals from the shapes, WebGL; marks the piece TIMELINE.gpu)
+for (const [key, file] of [['light', 'light.js'], ['planes', 'planes.js'], ['talk', 'talk.js'], ['relight', 'relight.js']]) {
   if (!meta[key]) continue;
   const end = out.lastIndexOf('</script>');
   out = out.slice(0, end) + fs.readFileSync(path.join(SKILL, 'kit', file), 'utf8').replace(/\s*$/, '\n') + out.slice(end);
 }
+if (meta.relight) { const end = out.lastIndexOf('</script>'); out = out.slice(0, end) + 'TIMELINE.gpu = true;   // relight runs in WebGL: export / review / still use the real GPU\n' + out.slice(end); }
 // opt-in cinematic finish (kit/look.js): only pieces whose piece.json has "look" get it; it runs on the GPU
 if (meta.look) {
   inject.push(`// ---- piece.json "look" (kit/look.js): the cinematic finish over each frame\nconst LOOK = ${JSON.stringify(meta.look)};`);

@@ -36,7 +36,8 @@ function planes(list, o = {}) {
     pg.setTransform(base);
     pg.translate(W / 2, H / 2); if (cam.rot) pg.rotate(cam.rot * k); pg.scale(s, s); pg.translate(-W / 2 - cam.x * k, -H / 2 - cam.y * k);
     const keep = ctx; ctx = pg;
-    try { P.draw(); } finally { ctx = keep; }
+    const rl = typeof relightBegin === 'function' ? relightBegin(pc) : undefined;   // kit/relight.js: each plane is relit on its own
+    try { P.draw(); } finally { ctx = keep; if (rl !== undefined) relightEnd(pc, rl); }
     // air: far planes take on the haze colour (only where the plane has paint)
     if (o.haze && P.z > 1) {
       const a = (o.haze.amt ?? 0.15) * (1 - k);
