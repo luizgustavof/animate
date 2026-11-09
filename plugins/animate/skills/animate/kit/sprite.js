@@ -22,6 +22,7 @@ const SPRITE_CACHE = (() => {
       let c = map.get(id);
       if (c) { map.delete(id); map.set(id, c); return c; }
       c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+      c.__probeId = id;   // telemetry (kit/core.js probes): blits of this canvas are tracked by id
       paint(c.getContext('2d'));
       map.set(id, c); bytes += c.width * c.height * 4;
       evict();

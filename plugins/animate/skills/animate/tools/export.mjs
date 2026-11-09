@@ -4,8 +4,8 @@
 //   audio:    window.renderAudioWav() renders the score in an OfflineAudioContext
 //   stems:    window.renderAudioStems() (optional) -> { music: b64wav, sfx: b64wav, ... }
 //   mux:      ffmpeg -> renders/final.mp4
-//   captions: TIMELINE.narration (optional) -> renders/narration.srt + renders/final-captions.mp4
-//             (a preview for reading the script against the picture; the real voice-over is added outside)
+//   captions: TIMELINE.narration (optional) -> renders/narration.srt; with --captions also renders/final-captions.mp4
+//             (a black-box burn-in for reading the script against the picture: opt-in, never a deliverable)
 //
 // Frame size comes from TIMELINE.width / TIMELINE.height (defaults to 1080x1080).
 //
@@ -31,7 +31,7 @@
 //           piece). On AMD the graphics card's share is tuned (pre-analysis, VBAQ, B-frames) and comes within 0.001 SSIM of it at the
 //           same size (0.956 vs 0.957 on a VHS piece, against the frames; untuned 0.940) in 15s, so --share-best only pays elsewhere.
 //
-// usage: node tools/export.mjs pieces/<name> [--share-best] [--from N] [--to N] [--shots 3,7] [--workers N] [--no-audio] [--force-audio] [--no-mux] [--no-captions] [--only-audio] [--share] [--gpu | --no-gpu] [--png] [--cpu-encode | --best] [--format F | --formats A,B] [--blur N]
+// usage: node tools/export.mjs pieces/<name> [--share-best] [--from N] [--to N] [--shots 3,7] [--workers N] [--no-audio] [--force-audio] [--no-mux] [--no-captions] [--captions] [--only-audio] [--share] [--gpu | --no-gpu] [--png] [--cpu-encode | --best] [--format F | --formats A,B] [--blur N]
 import { createRequire } from 'node:module';
 import { execSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -50,7 +50,7 @@ function loadPlaywright() {
 }
 const { chromium } = loadPlaywright();
 
-const USAGE = 'usage: node tools/export.mjs pieces/<name> [--from N] [--to N] [--shots 3,7] [--workers N] [--no-audio] [--force-audio] [--no-mux] [--no-captions] [--only-audio] [--share] [--gpu | --no-gpu] [--png] [--cpu-encode | --best] [--format F | --formats A,B] [--blur N]';
+const USAGE = 'usage: node tools/export.mjs pieces/<name> [--from N] [--to N] [--shots 3,7] [--workers N] [--no-audio] [--force-audio] [--no-mux] [--no-captions] [--captions] [--only-audio] [--share] [--gpu | --no-gpu] [--png] [--cpu-encode | --best] [--format F | --formats A,B] [--blur N]';
 const argv = process.argv.slice(2);
 if (!argv[0] || argv[0].startsWith('--')) { console.error(USAGE); process.exit(2); }
 const ROOT = path.resolve(argv[0]);
@@ -403,18 +403,23 @@ if (muxing && !stream) {
 }
 if (muxing) {
   if (meta.narration && meta.narration.length && !flag('no-captions')) {
+    // the .srt always; the burned-in preview (white mono on a black box over the picture) only on request: --captions.
+    // It is never part of a delivery: the piece's own subtitles are drawn in its style.
+    const burn = flag('captions');
     const ts = (s) => { const ms = Math.round(s * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
     const srt = meta.narration.map((n, i) => `${i + 1}\n${ts(n.t0)} --> ${ts(n.t1)}\n${n.text}\n`).join('\n');
     fs.writeFileSync(path.join(RENDERS, 'narration.srt'), srt);
     // libass scales subtitle units to PlayResY=288, so margins/sizes are in 288ths of the frame height
-    const unit = meta.height / 288, vertical = meta.height > meta.width;
-    const marginV = Math.round((vertical ? 470 : 70) / unit), fontSize = Math.round((vertical ? 64 : 46) / unit);
-    const style = `Fontname=${process.platform === 'win32' ? 'Consolas' : process.platform === 'darwin' ? 'Menlo' : 'DejaVu Sans Mono'},Fontsize=${fontSize},PrimaryColour=&H00FFFFFF,BackColour=&H99000000,BorderStyle=3,Outline=6,Shadow=0,Alignment=2,MarginV=${marginV}`;
-    const r2 = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', 'final.mp4',
-      '-vf', `subtitles=narration.srt:force_style='${style}'`, ...(ENC.name === 'libx264' ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'] : ENC.args), '-pix_fmt', 'yuv420p', '-c:a', 'copy', 'final-captions.mp4'],
-    { cwd: RENDERS, stdio: 'inherit' });
-    if (r2.status !== 0) { console.error('caption burn failed'); process.exit(1); }
-    console.log('wrote', path.join(RENDERS, 'final-captions.mp4'), '(narration preview)');
+    if (burn) {
+      const unit = meta.height / 288, vertical = meta.height > meta.width;
+      const marginV = Math.round((vertical ? 470 : 70) / unit), fontSize = Math.round((vertical ? 64 : 46) / unit);
+      const style = `Fontname=${process.platform === 'win32' ? 'Consolas' : process.platform === 'darwin' ? 'Menlo' : 'DejaVu Sans Mono'},Fontsize=${fontSize},PrimaryColour=&H00FFFFFF,BackColour=&H99000000,BorderStyle=3,Outline=6,Shadow=0,Alignment=2,MarginV=${marginV}`;
+      const r2 = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', 'final.mp4',
+        '-vf', `subtitles=narration.srt:force_style='${style}'`, ...(ENC.name === 'libx264' ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'] : ENC.args), '-pix_fmt', 'yuv420p', '-c:a', 'copy', 'final-captions.mp4'],
+      { cwd: RENDERS, stdio: 'inherit' });
+      if (r2.status !== 0) { console.error('caption burn failed'); process.exit(1); }
+      console.log('wrote', path.join(RENDERS, 'final-captions.mp4'), '(narration preview)');
+    }
   }
 }
 // --only-audio: swap the new score into the existing master without re-rendering frames

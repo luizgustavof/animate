@@ -510,6 +510,44 @@ function springTrack(keys, p = SPRING.smooth) {
 }
 
 // ---------------------------------------------------------------------
+//  rig: limbs that reach for a point, parts that follow a beat late. Pure functions of time: any frame in any order.
+//  ik2(root, target, L1, L2, bend)  two-bone IK (shoulder-elbow-hand, hip-knee-foot): { joint, end, a1, a2, reach }.
+//      Angles are measured from straight down, like FK limbs drawn with x = sin(a) * L, y = cos(a) * L; a2 is relative
+//      to a1. bend = +1 / -1 picks the side the elbow / knee goes. Past its reach the limb points straight at the target.
+//      A foot that must stay planted: target = the fixed floor spot, root = the moving hip.
+//  follow(f, t, p)   f(t) seen through a spring: trails behind when f moves, overshoots a little, settles. f returns a
+//      number or [x, y]. Built from f's past (a fixed sum over ~win seconds), so it needs no state. p = SPRING preset.
+//  jiggle(f, t, p)   follow(f, t, p) - f(t): how far a loose part lags. Hair, ears, a tail, a belly: add it to their angle
+//      or position, scaled (e.g. tail angle += jiggle(bodyY, TT) * 0.004).
+// ---------------------------------------------------------------------
+function ik2(root, target, L1, L2, bend = 1) {
+  const dx = target[0] - root[0], dy = target[1] - root[1], d0 = Math.hypot(dx, dy);
+  const d = clamp(d0, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+  const base = Math.atan2(dx, dy);
+  const a1 = base - bend * Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
+  const a2 = bend * (Math.PI - Math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1)));
+  const joint = [root[0] + Math.sin(a1) * L1, root[1] + Math.cos(a1) * L1];
+  const end = [joint[0] + Math.sin(a1 + a2) * L2, joint[1] + Math.cos(a1 + a2) * L2];
+  return { joint, end, a1, a2, reach: d0 / (L1 + L2) };
+}
+function follow(f, t, p = SPRING.smooth) {
+  const w0 = Math.sqrt(p.k), z = Math.min(0.99, p.d / (2 * w0)), wd = w0 * Math.sqrt(1 - z * z);
+  const win = 5 / (z * w0), N = 24, dt = win / N;
+  let acc = null, ws = 0;
+  for (let i = 0; i < N; i++) {
+    const tau = (i + 0.5) * dt, h = Math.exp(-z * w0 * tau) * Math.sin(wd * tau), v = f(t - tau);
+    ws += h;
+    if (typeof v === 'number') acc = (acc ?? 0) + h * v;
+    else { acc = acc || v.map(() => 0); for (let j = 0; j < v.length; j++) acc[j] += h * v[j]; }
+  }
+  return typeof acc === 'number' ? acc / ws : acc.map((a) => a / ws);
+}
+function jiggle(f, t, p = SPRING.smooth) {
+  const a = follow(f, t, p), b = f(t);
+  return typeof b === 'number' ? a - b : a.map((v, i) => v - b[i]);
+}
+
+// ---------------------------------------------------------------------
 //  layout for several formats (9:16, 1:1, 16:9, 4:5 from one piece): place things by fractions of the frame,
 //  size them by UNIT (1 at 1080 on the short side). LX(0.5), LY(0.62), 120 * UNIT. PORTRAIT / WIDE pick layouts.
 // ---------------------------------------------------------------------
@@ -530,3 +568,65 @@ function drawAsset(name, x, y, w, h, o = {}) {
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
   ctx.restore(); return true;
 }
+
+// ---------------------------------------------------------------------
+//  telemetry probes (tools/telemetry.mjs, tools/animlint.mjs): what is on screen, as numbers, without a picture.
+//  Off unless a tool calls window.probeStart(); then every frame records, in frame pixels:
+//    sprites  every SPRITE_CACHE canvas blitted onto the frame: { k: 'sprite', id, box }
+//    text     every fillText / strokeText:                       { k: 'text', id: the string, box }
+//    probes   what the piece marks itself:                       { k: 'probe', id, x, y, box? }
+//  probe(id, x, y)          a point in the current (world) coords: a hand, a foot, the head's centre
+//  probeBox(id, points)     an outline or a list of points: a character's body, a prop
+//  Name probes 'who.part' ('pipoca.hand.r'): animlint reads each id as one track over time. Calls cost nothing when off,
+//  and drawing is never changed (frames stay pixel-identical: tools/framehash.mjs).
+// ---------------------------------------------------------------------
+let PROBES = null;
+// a canvas the frame is drawn on (the frame itself or a renderer layer: same aspect, at most frame size) -> frame px per its px
+function probeScale(cv) {
+  if (!cv || !cv.width || cv.width > W + 1 || Math.abs(cv.width / cv.height - W / H) > 0.01) return 0;
+  return W / cv.width;
+}
+function probeCorners(g, pts) {
+  const k = probeScale(g.canvas); if (!k) return null;
+  const m = g.getTransform(); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const [x, y] of pts) {
+    const X = (m.a * x + m.c * y + m.e) * k, Y = (m.b * x + m.d * y + m.f) * k;
+    if (X < x0) x0 = X; if (Y < y0) y0 = Y; if (X > x1) x1 = X; if (Y > y1) y1 = Y;
+  }
+  return [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)];
+}
+function probe(id, x, y) {
+  if (!PROBES || !ctx) return;
+  const b = probeCorners(ctx, [[x, y]]); if (b) PROBES.push({ k: 'probe', id, x: b[0], y: b[1] });
+}
+function probeBox(id, P) {
+  if (!PROBES || !ctx || !P || !P.length) return;
+  const b = probeCorners(ctx, P); if (b) PROBES.push({ k: 'probe', id, x: Math.round((b[0] + b[2]) / 2), y: Math.round((b[1] + b[3]) / 2), box: b });
+}
+function probeStart() {
+  PROBES = [];
+  if (probeStart.hooked) return;
+  probeStart.hooked = true;
+  const P2 = CanvasRenderingContext2D.prototype, di = P2.drawImage, ft = P2.fillText, st = P2.strokeText;
+  P2.drawImage = function (img, ...a) {
+    if (PROBES && img && img.__probeId && this.globalAlpha > 0.05) {
+      const w = img.width, h = img.height;
+      const [x, y, dw, dh] = a.length >= 8 ? [a[4], a[5], a[6], a[7]] : a.length >= 4 ? a : [a[0], a[1], w, h];
+      const b = probeCorners(this, [[x, y], [x + dw, y], [x, y + dh], [x + dw, y + dh]]);
+      if (b) PROBES.push({ k: 'sprite', id: img.__probeId, box: b });
+    }
+    return di.call(this, img, ...a);
+  };
+  const text = (fn) => function (s, x, y, ...a) {
+    if (PROBES && this.globalAlpha > 0.05 && String(s).trim()) {
+      const m = this.measureText(s), al = this.textAlign, w = m.width;
+      const x0 = al === 'center' ? x - w / 2 : al === 'right' || al === 'end' ? x - w : x;
+      const b = probeCorners(this, [[x0, y - (m.actualBoundingBoxAscent || 0)], [x0 + w, y + (m.actualBoundingBoxDescent || 0)]]);
+      if (b) PROBES.push({ k: 'text', id: String(s), box: b });
+    }
+    return fn.call(this, s, x, y, ...a);
+  };
+  P2.fillText = text(ft); P2.strokeText = text(st);
+}
+function probeTake() { const p = PROBES; PROBES = null; return p || []; }
+window.probeStart = probeStart; window.probeTake = probeTake;
