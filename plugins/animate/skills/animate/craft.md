@@ -44,6 +44,44 @@ Each rule was learned the hard way on a real piece. Follow them unless the user 
 - **Beat-cut pieces: a shot is complete on its first frame.** Tags and captions that pop or write on after `E0` never appear in shots under ~1s; give short shots no caption, or draw it finished. Cuts on 16ths land on odd frames at 24fps — the renderer picks the era by frame, so they're exact (start from `templates/beat-cut/`).
 - **Captions hold:** each on screen ≥ 1.25s and ≤ 3.5 words/s; pop the year tag, write the caption on just after.
 
+## Characters: how limbs join the body
+Where a limb meets the body is where a drawn character looks like a doll or like a living thing. The rule, from how
+figure and cut-out animators build joints:
+- **Overlap, never touch.** A limb starts *inside* its parent: its root is a full rounded end hidden under the body,
+  overlapping by about half the limb's width. A limb whose edge starts at the body's edge (a tangent) reads as glued on.
+- **The parent drapes over the child.** At the shoulder the shoulder mass covers the top of the upper arm and ends about
+  halfway down it (the deltoid inserts mid-arm; ending it too high is the classic mistake). Same for hips over thighs,
+  the collar over the neck, a cuff over the wrist.
+- **The outside line flows, the inside line breaks.** On the outer side of a joint one contour runs on without a break
+  (shoulder into arm, hip into leg). On the inner side the shapes overlap and the line stops: the armpit, the crook of
+  the elbow, the back of the knee. A fold or a crease there, never a seam all the way round.
+- **Same material, one piece.** A sleeve and the shirt it is sewn to are one silhouette with one light and one
+  texture; never two shapes with an outline between them. What separates the arm from the side is a fold under the
+  armpit and the shadow along the inner edge.
+- **A limb crossing in front separates by overlap and shadow,** not by an outline drawn round its root: its root stays
+  hidden under the shoulder mass, and only the part in front casts a soft shadow on the body.
+- **Never patch a bad joint with an extra shape** (a ball on the shoulder, a blob at the elbow): rebuild the joint.
+- **No tangents anywhere:** edges either overlap clearly or leave a clear gap of background between them (an arm
+  hanging by the side: either over the torso's edge, or with space under the armpit).
+- Code: draw same-material parts as one path (several sub-paths filled together are their union), shade and texture
+  that union once, outline its outer edge only (a soft shadow of the union reads as the outline), and add the
+  inner creases as strokes.
+
+## Characters: hair
+Hair is designed, not filled with strands. How illustrators and stop-motion sculptors build it:
+- **Big, medium, small.** First 2–3 big masses (the top, the sides, what falls forward or back) that make the silhouette;
+  then medium clumps inside each mass; last a few small strands and fly-aways. Jumping to strands makes it chaotic.
+- **Vary the clumps.** Never all the same width, length or angle: roughly a few big, more medium, several small, and
+  the tips gathered into a few points, not a comb.
+- **Flow from where it grows.** Every clump starts at the part or the crown, rides the round of the skull, then
+  follows gravity (or the style: swept, slicked, spiked). Clumps follow the direction of the mass they belong to.
+- **Hair has volume.** It sits *on* the head, a little off the skull, never painted on it; the hairline frames the face.
+  Keep the space between skull and outer layer even (a balloon or a helmet both read wrong).
+- **Part off-centre, asymmetry on purpose.** One side heavier, one lock out of place.
+- **Light by mass:** the back layer darkest, the front lighter; one sheen band that follows the round of the head,
+  broken by the clumps; clumps cast soft shadows on the ones under them; the fringe casts a shadow on the forehead.
+- **Ends taper** into points, and a few small strands flick off the big clumps and break the silhouette.
+
 ## Timing
 - **24fps + 120 BPM:** an 8th = 6 frames, a 16th = 3 — every cut and morph is a whole frame. (30fps → 112.5 BPM; 60fps → 900/7 BPM.)
 - **Cuts and morph centres on the 8th grid**, proven by `review.mjs`, not by eye.
